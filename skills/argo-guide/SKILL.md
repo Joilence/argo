@@ -164,7 +164,9 @@ File: `demos/<name>.scenes.json` — JSON array combining voiceover + overlay de
 
 Key fields: `scene` (required, matches `mark()`), `text` (spoken narration — omit for silent scenes), `voice` (default `af_heart`), `speed` (default `1.0`), `overlay` (optional cue object).
 
-**`effects` field**: The `effects` array in scenes.json is **preview-UI metadata only** — it does NOT auto-inject effects during recording. To produce camera effects in the final video, you must call `showConfetti()`, `spotlight()`, etc. explicitly in the demo script. The `effects` field is used by `argo preview` for editing and display purposes.
+**`effects` field**: The `effects` array in scenes.json is **preview-UI metadata only** — it does NOT auto-inject effects during recording. To produce effects in the final video, you must call `showConfetti()`, `spotlight()`, etc. explicitly in the demo script. The `effects` field is used by `argo preview` for editing and previewing purposes.
+
+**Overlay positioning**: In `argo preview`, overlays can be dragged to snap into any of the 6 zone positions. The preview uses one-way data flow — field edits only re-render the edited scene.
 
 **Silent demos:** Omit `text` from all scenes — exports video-only with no audio track.
 
@@ -217,6 +219,8 @@ npx argo preview <name>                     # Interactive replay viewer (iterate
 npx argo preview                            # Multi-demo dashboard (lists all demos with status)
 npx argo clip <name> <scene>                # Extract a scene as MP4 clip
 npx argo clip <name> <scene> --format gif   # Extract as GIF (for release notes, docs)
+npx argo import <video-file>                 # Import external video for post-production
+npx argo import <video-file> --demo <name>   # Import with custom demo name
 npx argo init                               # Scaffold example demo + config
 npx argo init --from tests/spec.ts          # Convert existing Playwright test
 ```
@@ -333,6 +337,19 @@ narration.mark('intro');
 ```
 
 This is a supported pattern for marketing/product videos that don't need a running web server.
+
+### Video Import (Post-Production Workflow)
+
+Import any existing video into Argo for post-production — add voiceover, overlays, and scene boundaries without Playwright recording:
+
+```bash
+npx argo import recording.mp4 --demo myapp
+npx argo preview myapp
+```
+
+In the preview editor: scrub the timeline, click "Add scene at current time" to insert boundaries, write voiceover text, drag-to-snap overlays into position, then click Export. Overlays are composited as PNGs with adaptive theme detection (light/dark auto-detected from video frames via multi-frame sampling). TTS is auto-generated on export for any scenes with text.
+
+This enables the "record externally, post-produce in Argo" workflow — useful for desktop apps, mobile screen recordings, or any video source outside Playwright.
 
 ---
 

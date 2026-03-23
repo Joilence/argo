@@ -46,7 +46,7 @@ This is a lightweight roadmap note for future Argo work. It is intentionally pra
 ## Production Quality
 
 - ~~Audio ducking and background music.~~ **SHIPPED** (constant-volume mixing). True sidechain ducking is future work.
-- AI-generated background music. Use `Xenova/musicgen-small` (Transformers.js) to generate background music from a text prompt — fully local, no API keys. Config: `export.audio.musicPrompt: 'lofi chill ambient with soft piano'`. Pipeline generates a ~30s clip, content-addressed cached, looped via `-stream_loop -1`. Model is ~1.8GB (first run downloads). Reference: [MusicGen Web](https://huggingface.co/spaces/Xenova/musicgen-web).
+- ~~AI-generated background music.~~ **SHIPPED** — MusicGen (`Xenova/musicgen-small`) runs in the preview UI via Web Worker + WebGPU. Text prompt → WAV saved to `.argo/<demo>/music/bgm.wav` → picked up by export pipeline. Uses `q4` dtype (~450MB). Served as same-origin module worker to avoid cross-origin blob URL issues.
 - ~~Cursor smoothing and highlighting.~~ **SHIPPED** — `cursorHighlight(page)` with pulse animation and click ripple effects.
 - ~~Watermark and branding strip.~~ **SHIPPED** — `export.watermark: { src, position, opacity, margin }` overlays PNG at any corner.
 - ~~Chapter markers.~~ **SHIPPED** — MP4 chapter metadata embedded from scene marks via ffmpeg.
@@ -80,11 +80,11 @@ This is a lightweight roadmap note for future Argo work. It is intentionally pra
   - Video capture from the Electron window (Playwright supports this natively)
   - This is a deeper integration than Tauri mocking but Playwright already does the heavy lifting.
 
-- **Generic screen recording fallback** — For any desktop app (native, Qt, SwiftUI, etc.), bypass Playwright entirely and use macOS screen recording (`screencapture` or `ffmpeg -f avfoundation`). Argo would handle just TTS + overlays (injected as a transparent overlay window) + export. The recording source changes but the rest of the pipeline stays the same.
+- ~~**Generic screen recording fallback**~~ **PARTIALLY SHIPPED** — `argo import` now accepts any external video and brings it into the preview UI for post-production (add scenes, voiceover, overlays, export). This covers the "record externally, post-produce in Argo" workflow. Transparent overlay window injection during recording is still future work.
 
 ## Longer Horizon
 
-- Timeline preview UI. Visual overlay representations on the `argo preview` timeline bar (like a video editor's track view).
+- Timeline preview UI. ~~Drag-to-scrub and scene markers~~ **SHIPPED**. Remaining: visual overlay representations on the timeline bar (like a video editor's track view — showing overlay durations as colored blocks).
 - AI assist for demo polish. Suggest shorter copy, better scene splits, improved pacing, and stronger overlay placement.
 - Auto social package. Export MP4 plus thumbnail, transcript, title ideas, subtitle variants, and aspect-ratio cuts in one command.
 
@@ -132,6 +132,15 @@ This is a lightweight roadmap note for future Argo work. It is intentionally pra
 - Freeze-frame holds — `post: [{ type: 'freeze', atMs, durationMs }]` in scenes manifest
 - Watermark overlay — `export.watermark: { src, position, opacity, margin }`
 - Live recording progress — per-scene status via JSONL progress file
+- `argo import` — import external videos for post-production (adds voiceover, overlays, scenes via preview UI)
+- Video import post-production — overlay PNG compositing, auto-TTS on export, adaptive theme detection for imported videos
+- Drag-to-snap overlay positioning — visual drag-and-drop overlay placement in preview, snaps to zone positions
+- One-way data flow for overlay state — fixes drag contamination, field edits only re-render the edited scene
+- Drag-to-scrub timeline — click/drag anywhere on the preview timeline to scrub video position
+- Add scene at current time — insert new scene boundaries during preview playback
+- Adaptive overlay theme detection — `autoBackground` detects CSS variable backgrounds (`--bg`, `--background`), multi-frame sampling, per-overlay theme
+- yuv420p default pixel format — universal video compatibility across players
+- AI-generated background music — MusicGen in preview UI via WebGPU (text prompt → WAV → export)
 
 ## New Feature Ideas
 

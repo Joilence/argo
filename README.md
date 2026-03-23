@@ -217,6 +217,7 @@ argo preview <demo>                Browser-based editor for voiceover, overlays,
 argo preview                       Multi-demo dashboard (lists all demos with status)
 argo clip <demo> <scene>            Extract a scene clip from exported video
 argo clip <demo> <scene> --format gif  Extract as palette-optimized GIF
+argo import <video-file>           Import external video for post-production
 argo doctor                        Check environment (ffmpeg, Playwright, config)
 argo --config <path> <command>     Use a custom config file
 
@@ -237,6 +238,7 @@ import { test, expect, demoType } from '@argo-video/cli';
 import { showOverlay, hideOverlay, withOverlay } from '@argo-video/cli';
 import { showConfetti } from '@argo-video/cli';
 import { spotlight, focusRing, dimAround, zoomTo, resetCamera } from '@argo-video/cli';
+import { cursorHighlight, resetCursor } from '@argo-video/cli';
 import { showCaption, hideCaption, withCaption } from '@argo-video/cli';
 import { defineConfig, demosProject, engines } from '@argo-video/cli';
 ```
@@ -257,6 +259,8 @@ import { defineConfig, demosProject, engines } from '@argo-video/cli';
 | `dimAround(page, selector, opts?)` | Fade sibling elements to highlight target |
 | `zoomTo(page, selector, opts?)` | Scale viewport centered on target. Pass `{ narration }` for overlay-safe ffmpeg post-export zoom (recommended). |
 | `resetCamera(page)` | Clear all active camera effects |
+| `cursorHighlight(page, opts?)` | Persistent cursor ring with pulse + click ripple. Options: `color`, `radius`, `pulse`, `clickRipple`, `opacity` |
+| `resetCursor(page)` | Remove cursor highlight |
 | `showCaption(page, scene, text, durationMs)` | Show a simple text caption |
 | `withCaption(page, scene, text, action)` | Show caption during an async action |
 | `hideCaption(page)` | Remove caption |
@@ -453,6 +457,18 @@ npx argo preview
 ```
 
 Opens a dashboard listing every discovered demo with build status, video size, resolution, and quick-action links. Run `argo preview <demo>` for the single-demo editor.
+
+### Video Import
+
+Bring any existing video into Argo for post-production — add voiceover, overlays, and scene boundaries:
+
+```bash
+npx argo import recording.mp4              # import with auto-detected name
+npx argo import recording.mp4 --demo myapp # custom demo name
+npx argo preview myapp                     # open in editor
+```
+
+Import scaffolds a `.scenes.json` manifest and `.timing.json` from the video. In the preview editor you can scrub the timeline, add scene boundaries at any point, write voiceover text, drag-to-snap overlays into position, and export — all without re-recording. Overlays are composited as PNGs with adaptive theme detection (light/dark auto-detected from video frames).
 
 ## Example
 
