@@ -19,7 +19,7 @@ Write a demo script with Playwright. Add a scenes manifest. Run one command. Get
 
 ## Showcase
 
-[Watch the demo video](https://github.com/user-attachments/assets/2c0d25a2-3210-42fd-b511-dce2ec633712)
+[Watch the demo video](https://github.com/user-attachments/assets/74fd623b-c99a-4c3a-b8eb-ba38c17a3d93)
 
 > *This demo was recorded by Argo, using Argo. Yes, really.*
 
