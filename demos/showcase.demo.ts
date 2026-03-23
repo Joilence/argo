@@ -29,8 +29,9 @@ test('showcase', async ({ page, narration }) => {
   await page.waitForTimeout(400);
   await withOverlay(page, 'authoring', async () => {
     const totalMs = narration.durationFor('authoring', { maxMs: 9200 }) - 400;
-    const beat = Math.floor(totalMs / 4);
+    const beat = Math.floor(totalMs / 5);
     await focusRing(page, '#step-from', { color: '#60a5fa', duration: beat, wait: true });
+    await focusRing(page, '#step-import', { color: '#e879f9', duration: beat, wait: true });
     await focusRing(page, '#authoring-manifest', { color: '#22d3ee', duration: beat, wait: true });
     await focusRing(page, '#authoring-silent', { color: '#a78bfa', duration: beat, wait: true });
     await focusRing(page, '#authoring-duration', { color: '#f59e0b', duration: beat, wait: true });
@@ -57,13 +58,13 @@ test('showcase', async ({ page, narration }) => {
   await page.locator('#preview-editor').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
   await withOverlay(page, 'preview', async () => {
-    // 5 beats: command, type, scrubber, regen, export
-    // demoType takes ~1.8s for the text (30 chars * 60ms), so give it a beat
+    // 6 beats: command, drag, type, scrubber, regen, export
     const totalMs = narration.durationFor('preview', { maxMs: 9000 }) - 400;
-    const beat = Math.floor(totalMs / 5);
+    const beat = Math.floor(totalMs / 6);
     await focusRing(page, '#preview-command', { color: '#60a5fa', duration: beat, wait: true });
+    await focusRing(page, '#preview-drag', { color: '#e879f9', duration: beat, wait: true });
     await demoType(page, '#preview-text-field', 'Tighten the preview voice line.');
-    await page.waitForTimeout(Math.max(0, beat - 1800)); // demoType takes ~1.8s
+    await page.waitForTimeout(Math.max(0, beat - 1800));
     await focusRing(page, '#preview-scrubber', { color: '#22d3ee', duration: beat, wait: true });
     await focusRing(page, '#preview-regen', { color: '#a78bfa', duration: beat, wait: true });
     await focusRing(page, '#preview-export', { color: '#4ade80', duration: beat, wait: true });

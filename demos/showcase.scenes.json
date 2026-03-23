@@ -15,7 +15,7 @@
   },
   {
     "scene": "authoring",
-    "text": "Start with argo init, or convert an existing Playwright test with init dash dash from. Scenes, narration, and overlays live in one manifest. Omit the text field for silent scenes.",
+    "text": "Start with argo init, convert an existing Playwright test, or import any screen recording with argo import. Scenes, narration, and overlays live in one manifest.",
     "speed": 0.92,
     "overlay": {
       "type": "headline-card",
@@ -41,7 +41,7 @@
   },
   {
     "scene": "preview",
-    "text": "Preview turns your recording into an edit bay. Scrub by scene, rewrite a line, regenerate just that clip, and re-export without re-recording.",
+    "text": "Preview turns your recording into an edit bay. Scrub by scene, rewrite a line, drag overlays to snap them into position, and re-export without re-recording.",
     "speed": 0.92,
     "overlay": {
       "type": "headline-card",
