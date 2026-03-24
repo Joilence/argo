@@ -306,6 +306,7 @@ export async function runPipeline(
     musicPath: config.export.audio?.music,
     musicVolume: config.export.audio?.musicVolume,
     watermark: config.export.watermark,
+    sharpen: config.export.sharpen,
     overlayPngs,
   };
   if (resolvedFreezes.length > 0) {
@@ -500,6 +501,7 @@ export async function runPipeline(
         musicVolume: config.export.audio?.musicVolume,
         cameraMoves: variantCameraMoves.length > 0 ? variantCameraMoves : undefined,
         watermark: config.export.watermark,
+        sharpen: config.export.sharpen,
         freezeSpecs: variantResolvedFreezes.length > 0 ? variantResolvedFreezes : undefined,
         overlayPngs: variantOverlayPngs,
       });

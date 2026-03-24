@@ -228,6 +228,7 @@ export function createProgram(): Command {
           return undefined;
         })(),
         watermark: config.export.watermark,
+        sharpen: config.export.sharpen,
         freezeSpecs: resolvedFreezes.length > 0 ? resolvedFreezes : undefined,
         overlayPngs,
       });
@@ -375,6 +376,7 @@ export function createProgram(): Command {
             musicPath: config.export.audio?.music,
             musicVolume: config.export.audio?.musicVolume,
             watermark: config.export.watermark,
+            sharpen: config.export.sharpen,
           },
         });
         console.log(`\nArgo Dashboard running at: ${url}`);
@@ -409,6 +411,7 @@ export function createProgram(): Command {
           musicPath: config.export.audio?.music,
           musicVolume: config.export.audio?.musicVolume,
           watermark: config.export.watermark,
+        sharpen: config.export.sharpen,
         },
       });
       console.log(`\nArgo Preview running at: ${url}`);

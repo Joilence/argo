@@ -117,6 +117,17 @@ That matters for Argo because some effects are clunky or brittle in-browser but 
     }
     ```
 
+- Contrast-adaptive sharpening
+  - FFmpeg primitives: `cas` (AMD FidelityFX CAS)
+  - Screen recordings lose text crispness during encode. `cas` is purpose-built for this — better than `unsharp` for UI text.
+  - Suggested API:
+
+    ```js
+    export: {
+      sharpen: true,                   // or { strength: 0.5 }
+    }
+    ```
+
 - Background music ducking
   - FFmpeg primitives: sidechain compression
   - Suggested API:

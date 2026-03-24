@@ -42,6 +42,7 @@ export interface PreviewExportConfig {
   musicPath?: string;
   musicVolume?: number;
   watermark?: import('./config.js').WatermarkConfig;
+  sharpen?: boolean | { strength: number };
 }
 
 export interface PreviewOptions {
@@ -911,6 +912,7 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             musicVolume: requestedMusicVolume,
             cameraMoves,
             watermark: ec?.watermark,
+            sharpen: ec?.sharpen,
             freezeSpecs: previewResolvedFreezes.length > 0 ? previewResolvedFreezes : undefined,
             overlayPngs,
           });

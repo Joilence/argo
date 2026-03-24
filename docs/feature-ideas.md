@@ -173,6 +173,7 @@ This is a lightweight roadmap note for future Argo work. It is intentionally pra
 - **Audio ducking (sidechain)**. True sidechain compression — BGM volume dips when narration is active, rises in gaps. Uses ffmpeg `sidechaincompress`. More sophisticated than current constant-volume mixing.
 - **Segment-level export**. Export individual scenes as standalone clips with their own intro cards + transitions. For embedding specific features in docs pages. `argo export demo --scene intro --scene features`.
 - **Animated thumbnails**. Auto-generate a 3-second looping video thumbnail (like YouTube hover previews) from the most visually active scenes. Uses scene change detection + trim + loop.
+- **Contrast-adaptive sharpening**. Apply ffmpeg `cas` filter to restore text crispness lost during screen recording encode. Screen recordings are mostly sharp UI text — `cas` is designed for exactly this. Config: `export.sharpen: true` (or `export.sharpen: { strength: 0.5 }`). Single filter append, low complexity.
 
 ### Platform / Distribution
 

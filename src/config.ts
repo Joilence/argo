@@ -88,6 +88,9 @@ export interface ExportConfig {
   variants?: VariantConfig[];
   /** Overlay a watermark/brand bug image on the exported video. */
   watermark?: WatermarkConfig;
+  /** Apply contrast-adaptive sharpening (CAS) to restore text crispness.
+   * `true` uses default strength (0.5). Pass `{ strength: 0.0-1.0 }` to tune. */
+  sharpen?: boolean | { strength: number };
 }
 
 export interface OverlayConfig {

@@ -55,6 +55,9 @@ export interface ExportOptions {
   watermark?: WatermarkConfig;
   /** Pre-rendered overlay PNGs to composite onto the video (for imported videos). */
   overlayPngs?: RenderedOverlayPng[];
+  /** Apply contrast-adaptive sharpening (CAS) to restore text crispness.
+   * true = strength 0.5. { strength: 0.0-1.0 } to tune. */
+  sharpen?: boolean | { strength: number };
 }
 
 function formatSeconds(ms: number): string {
@@ -369,6 +372,19 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       const wmLabel = needsOpacity ? 'wm' : wmRef;
       filterParts.push(`[${videoSource}][${wmLabel}]overlay=${posExpr}:format=auto[outwm]`);
       videoSource = 'outwm';
+    }
+  }
+
+  // Contrast-adaptive sharpening — applied AFTER all compositing (last video filter)
+  const sharpen = options.sharpen;
+  if (sharpen) {
+    const strength = typeof sharpen === 'object' ? sharpen.strength : 0.5;
+    const clampedStrength = Math.max(0, Math.min(1, strength));
+    if (filterParts.length > 0 || videoSource !== '0:v') {
+      filterParts.push(`[${videoSource}]cas=${clampedStrength}[outcas]`);
+      videoSource = 'outcas';
+    } else {
+      args.push('-vf', `cas=${clampedStrength}`);
     }
   }
 
