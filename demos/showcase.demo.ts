@@ -108,6 +108,28 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#export-formats', { color: '#fb7185', duration: beat, wait: true });
   });
 
+  narration.mark('studio');
+  await page.locator('#studio-polish').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(400);
+  await withOverlay(page, 'studio', async () => {
+    const totalMs = narration.durationFor('studio', { maxMs: 10000 }) - 400;
+    const beat = Math.floor(totalMs / 4);
+    await focusRing(page, '#polish-frame', { color: '#60a5fa', duration: beat, wait: true });
+    await focusRing(page, '#polish-motion-blur', { color: '#e879f9', duration: beat, wait: true });
+    await focusRing(page, '#polish-scene-speed', { color: '#22d3ee', duration: beat, wait: true });
+    // Arrow annotation card — show an actual arrow overlay pointing at it
+    showOverlay(page, 'studio-arrow', {
+      type: 'arrow',
+      direction: 'down',
+      label: 'New!',
+      color: '#ef4444',
+      size: 56,
+      placement: 'top-right',
+      motion: 'fade-in',
+    }, beat);
+    await focusRing(page, '#polish-arrows', { color: '#fb7185', duration: beat, wait: true });
+  });
+
   narration.mark('ops');
   await page.locator('#ops').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);

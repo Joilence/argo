@@ -24,6 +24,16 @@ export default defineConfig({
       opacity: 0.16,
       margin: 26,
     },
+    // Frame: wrap the recording in a styled frame with padding, rounded corners,
+    // drop shadow, and a gradient background (the "Screen Studio" look).
+    frame: {
+      padding: 48,
+      borderRadius: 16,
+      shadow: 0.6,
+      background: { type: 'gradient', value: 'linear-gradient(135deg, #1a1a2e, #16213e)' },
+    },
+    // Motion blur: smooth zoom/pan transitions during camera moves.
+    motionBlur: { intensity: 0.4 },
     // variants: [
     //   { name: 'vertical', video: { width: 1080, height: 1920 } },
     //   { name: 'square',   video: { width: 1080, height: 1080 } },

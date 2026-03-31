@@ -88,6 +88,20 @@
     }
   },
   {
+    "scene": "studio",
+    "text": "New in this release: the studio polish pack. Frame your recording with padding, rounded corners, and a drop shadow on any background. Add motion blur to camera zooms, slow down a hero scene to half speed, and drop an arrow annotation to guide the viewer's eye.",
+    "speed": 0.92,
+    "overlay": {
+      "type": "headline-card",
+      "kicker": "STUDIO POLISH",
+      "title": "The Screen Studio look, in config.",
+      "body": "Frame, background, motion blur, per-scene speed, arrows — zero post-production.",
+      "placement": "top-right",
+      "motion": "slide-in",
+      "autoBackground": true
+    }
+  },
+  {
     "scene": "ops",
     "text": "As your demo catalog grows, Argo scales with it. Validate catches wiring bugs, doctor checks the environment, pipeline dash dash all renders everything, and the dashboard shows status at a glance.",
     "speed": 0.92,

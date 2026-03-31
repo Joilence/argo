@@ -1339,6 +1339,56 @@
     </div>
   </section>
 
+  <!-- ═══ Studio Polish ═══ -->
+  <section id="studio-polish">
+    <div class="section-inner">
+      <p class="section-label">Studio Polish</p>
+      <h2 class="section-title">Ship videos that look like Screen Studio, not screen recordings.</h2>
+      <p class="section-subtitle">
+        Frame your recording with padding, rounded corners, and a drop shadow on any background.
+        Add motion blur to camera moves, control per-scene playback speed, and point viewers to what matters with arrow annotations.
+      </p>
+
+      <div class="feature-card" id="frame-config" data-demo-target="frame-config" style="margin-bottom: 20px;">
+        <div class="feature-kicker">Config</div>
+        <div class="snippet">
+          <span class="k">export</span><span class="p">:</span> <span class="p">{</span><br />
+          &nbsp;&nbsp;<span class="n">frame</span><span class="p">:</span> <span class="p">{</span><br />
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="n">padding</span><span class="p">:</span> <span class="n">48</span><span class="p">,</span>
+          <span class="n">borderRadius</span><span class="p">:</span> <span class="n">16</span><span class="p">,</span>
+          <span class="n">shadow</span><span class="p">:</span> <span class="n">0.6</span><span class="p">,</span><br />
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="n">background</span><span class="p">:</span> <span class="p">{</span> <span class="n">type</span><span class="p">:</span> <span class="s">'gradient'</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="s">'linear-gradient(135deg, #667eea, #764ba2)'</span> <span class="p">}</span><br />
+          &nbsp;&nbsp;<span class="p">},</span><br />
+          &nbsp;&nbsp;<span class="n">motionBlur</span><span class="p">:</span> <span class="p">{</span> <span class="n">intensity</span><span class="p">:</span> <span class="n">0.4</span> <span class="p">}</span><br />
+          <span class="p">}</span>
+        </div>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card" id="polish-frame" data-demo-target="polish-frame">
+          <div class="feature-kicker">Frame + Background</div>
+          <h3 class="feature-name">Padding, rounded corners, drop shadow</h3>
+          <p class="feature-desc">Wrap the raw recording in a styled frame with solid colors, CSS gradients, or custom images behind it. One config block, no Photoshop.</p>
+        </div>
+        <div class="feature-card" id="polish-motion-blur" data-demo-target="polish-motion-blur">
+          <div class="feature-kicker">Motion Blur</div>
+          <h3 class="feature-name">Smooth zoom and pan transitions</h3>
+          <p class="feature-desc">Camera moves get natural motion blur applied after the zoompan filter. Adjustable intensity from subtle to cinematic.</p>
+        </div>
+        <div class="feature-card" id="polish-scene-speed" data-demo-target="polish-scene-speed">
+          <div class="feature-kicker">Per-Scene Speed</div>
+          <h3 class="feature-name">Slow-mo reveals, fast-forward intros</h3>
+          <p class="feature-desc">Set <code>playbackSpeed: 0.5</code> on a scene to linger on the hero moment or <code>2.0</code> to skip the setup. Works alongside gap speed ramp.</p>
+        </div>
+        <div class="feature-card" id="polish-arrows" data-demo-target="polish-arrows">
+          <div class="feature-kicker">Arrow Annotations</div>
+          <h3 class="feature-name">Point viewers to what matters</h3>
+          <p class="feature-desc">Eight directions, customizable color and size, optional label. SVG-based arrows render in any overlay zone with full theme support.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="ops">
     <div class="section-inner">
       <p class="section-label">Fleet Workflow</p>
