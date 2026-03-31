@@ -119,6 +119,31 @@ export function buildCameraMoveFilter(
 }
 
 /**
+ * Build an ffmpeg filter expression for motion blur applied after camera moves.
+ *
+ * Uses tblend to blend consecutive frames, creating a motion blur effect
+ * during zoom/pan transitions. The intensity controls the blend opacity.
+ *
+ * @param inputLabel - Stream label of the camera move output (e.g., '[camfinal]')
+ * @param intensity - Blur intensity from 0.0 to 1.0. Default: 0.5.
+ * @returns Filter string and output label, or null if intensity is 0.
+ */
+export function buildMotionBlurFilter(
+  inputLabel: string,
+  intensity: number = 0.5,
+): { filter: string; outputLabel: string } | null {
+  const clamped = Math.max(0, Math.min(1, intensity));
+  if (clamped <= 0) return null;
+
+  // tblend averages current and previous frame with configurable opacity.
+  // all_opacity controls how much of the blended result to use (0 = no blur, 1 = full blend).
+  const outputLabel = 'mblur';
+  const filter = `${inputLabel}tblend=all_mode=average:all_opacity=${clamped.toFixed(2)}[${outputLabel}]`;
+
+  return { filter, outputLabel };
+}
+
+/**
  * Shift camera moves by a time offset (for head trim alignment).
  */
 export function shiftCameraMoves(moves: CameraMove[], offsetMs: number): CameraMove[] {

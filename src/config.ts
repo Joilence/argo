@@ -64,6 +64,31 @@ export interface WatermarkConfig {
   margin?: number;
 }
 
+export type BackgroundType = 'solid' | 'gradient' | 'image';
+
+export interface BackgroundConfig {
+  /** Type of background. */
+  type: BackgroundType;
+  /** Value depends on type:
+   * - solid: hex color string (e.g., '#1a1a2e')
+   * - gradient: CSS gradient string (e.g., 'linear-gradient(135deg, #667eea, #764ba2)')
+   * - image: path to background image file */
+  value: string;
+}
+
+export interface FrameConfig {
+  /** Padding around the recording in pixels. Default: 40. */
+  padding?: number;
+  /** Border radius for rounded corners in pixels. Default: 12. 0 disables rounding. */
+  borderRadius?: number;
+  /** Drop shadow intensity (0.0 to 1.0). Default: 0.5. 0 disables shadow. */
+  shadow?: number;
+  /** Shadow color as hex string. Default: '#000000'. */
+  shadowColor?: string;
+  /** Background behind the framed recording. Default: solid black (#000000). */
+  background?: BackgroundConfig;
+}
+
 export interface VariantConfig {
   /** Variant name — used in output filename (e.g., 'vertical' → showcase.vertical.mp4). */
   name: string;
@@ -91,6 +116,13 @@ export interface ExportConfig {
   /** Apply contrast-adaptive sharpening (CAS) to restore text crispness.
    * `true` uses default strength (0.5). Pass `{ strength: 0.0-1.0 }` to tune. */
   sharpen?: boolean | { strength: number };
+  /** Frame the recording with padding, rounded corners, drop shadow, and a background.
+   * Creates the polished "Screen Studio" look. */
+  frame?: FrameConfig;
+  /** Apply motion blur during camera move transitions.
+   * `true` uses default intensity (0.5). Pass `{ intensity: 0.0-1.0 }` to tune.
+   * Only takes effect when cameraMoves are present. */
+  motionBlur?: boolean | { intensity: number };
 }
 
 export interface OverlayConfig {

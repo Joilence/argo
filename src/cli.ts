@@ -25,7 +25,7 @@ import {
 } from './timeline.js';
 import { generateChapterMetadata } from './chapters.js';
 import { generateSrt, generateVtt } from './subtitles.js';
-import { applySpeedRampToTimeline, type Segment } from './speed-ramp.js';
+import { applySpeedRampToTimeline, type Segment, type SceneSpeedMap } from './speed-ramp.js';
 import { shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
 import { resolveFreezes, adjustPlacementsForFreezes, totalFreezeDurationMs, type FreezeSpec } from './freeze.js';
 import type { Placement } from './tts/align.js';
@@ -141,10 +141,19 @@ export function createProgram(): Command {
         const computedHeadTrimMs = computeHeadTrimMs(timing);
         const shiftedPlacements = shiftPlacements(untrimmedPlacements, computedHeadTrimMs);
         const shiftedDurationMs = rawVideoDurationMs - computedHeadTrimMs;
+        // Read per-scene playback speeds from manifest
+        const cliSceneSpeeds: SceneSpeedMap = {};
+        for (const entry of manifestEntries) {
+          if (entry.scene && typeof (entry as any).playbackSpeed === 'number' && (entry as any).playbackSpeed !== 1.0) {
+            cliSceneSpeeds[entry.scene] = (entry as any).playbackSpeed;
+          }
+        }
+
         const speedRampPlan = applySpeedRampToTimeline(
           shiftedPlacements,
           shiftedDurationMs,
           config.export.speedRamp,
+          Object.keys(cliSceneSpeeds).length > 0 ? cliSceneSpeeds : undefined,
         );
 
         placements = speedRampPlan.placements;
@@ -229,6 +238,8 @@ export function createProgram(): Command {
         })(),
         watermark: config.export.watermark,
         sharpen: config.export.sharpen,
+        frame: config.export.frame,
+        motionBlur: config.export.motionBlur,
         freezeSpecs: resolvedFreezes.length > 0 ? resolvedFreezes : undefined,
         overlayPngs,
       });

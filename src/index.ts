@@ -17,6 +17,9 @@ export {
   type VariantConfig,
   type AudioConfig,
   type WatermarkConfig,
+  type FrameConfig,
+  type BackgroundConfig,
+  type BackgroundType,
 } from './config.js';
 
 // Fixtures
@@ -99,7 +102,7 @@ export { runPipeline, runBatchPipeline, discoverDemos, type PipelineOptions } fr
 export { buildTransitionFilters } from './transitions.js';
 
 // Speed Ramp
-export { computeSegments, applySpeedRamp } from './speed-ramp.js';
+export { computeSegments, applySpeedRamp, type SceneSpeedMap } from './speed-ramp.js';
 
 // Freeze
 export {
@@ -112,7 +115,10 @@ export {
 } from './freeze.js';
 
 // Camera Moves
-export { buildCameraMoveFilter, shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
+export { buildCameraMoveFilter, buildMotionBlurFilter, shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
+
+// Frame
+export { buildFrameFilter, type FrameFilterResult } from './frame.js';
 
 // Progress
 export { runFfmpegWithProgress } from './progress.js';

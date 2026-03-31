@@ -9,45 +9,68 @@ export interface Segment {
 }
 
 /**
+ * Per-scene playback speed overrides, keyed by scene name.
+ */
+export type SceneSpeedMap = Record<string, number>;
+
+/**
  * Identify gap segments between scene placements and mark them for speed-up.
+ * Also applies per-scene playback speed overrides when provided.
  */
 export function computeSegments(
   placements: Placement[],
   totalDurationMs: number,
   config: SpeedRampConfig,
+  sceneSpeeds?: SceneSpeedMap,
 ): Segment[] {
   const minGapMs = config.minGapMs ?? 500;
   const gapSpeed = config.gapSpeed;
-  if (gapSpeed <= 1.0) return []; // No speed-up needed
+  const hasSceneSpeeds = sceneSpeeds && Object.values(sceneSpeeds).some((s) => s !== 1.0);
+
+  if (gapSpeed <= 1.0 && !hasSceneSpeeds) return []; // No speed changes needed
 
   const sorted = [...placements].sort((a, b) => a.startMs - b.startMs);
   const segments: Segment[] = [];
   let cursor = 0;
 
   for (const p of sorted) {
-    if (p.startMs - cursor >= minGapMs) {
+    if (p.startMs - cursor >= minGapMs && gapSpeed > 1.0) {
       // Gap before this scene
       segments.push({
         startMs: cursor,
         endMs: p.startMs,
         speed: gapSpeed,
       });
+    } else if (p.startMs > cursor) {
+      // Small gap or gapSpeed <= 1.0: keep at normal speed
+      segments.push({
+        startMs: cursor,
+        endMs: p.startMs,
+        speed: 1.0,
+      });
     }
-    // Scene itself at normal speed
+    // Scene segment with optional per-scene speed override
+    const sceneSpeed = sceneSpeeds?.[p.scene] ?? 1.0;
     segments.push({
       startMs: p.startMs,
       endMs: p.endMs,
-      speed: 1.0,
+      speed: sceneSpeed,
     });
     cursor = p.endMs;
   }
 
   // Trailing gap
-  if (totalDurationMs - cursor >= minGapMs) {
+  if (totalDurationMs - cursor >= minGapMs && gapSpeed > 1.0) {
     segments.push({
       startMs: cursor,
       endMs: totalDurationMs,
       speed: gapSpeed,
+    });
+  } else if (totalDurationMs > cursor) {
+    segments.push({
+      startMs: cursor,
+      endMs: totalDurationMs,
+      speed: 1.0,
     });
   }
 
@@ -76,12 +99,15 @@ export function applySpeedRampToTimeline(
   placements: Placement[],
   totalDurationMs: number,
   config?: SpeedRampConfig,
+  sceneSpeeds?: SceneSpeedMap,
 ): { placements: Placement[]; totalDurationMs: number; segments: Segment[] } {
-  if (!config || config.gapSpeed <= 1.0 || placements.length === 0) {
+  const hasSceneSpeeds = sceneSpeeds && Object.values(sceneSpeeds).some((s) => s !== 1.0);
+  if (!hasSceneSpeeds && (!config || config.gapSpeed <= 1.0) || placements.length === 0) {
     return { placements, totalDurationMs, segments: [] };
   }
 
-  const segments = computeSegments(placements, totalDurationMs, config);
+  const effectiveConfig: SpeedRampConfig = config ?? { gapSpeed: 1.0 };
+  const segments = computeSegments(placements, totalDurationMs, effectiveConfig, sceneSpeeds);
   if (segments.length === 0 || segments.every((segment) => segment.speed === 1.0)) {
     return { placements, totalDurationMs, segments: [] };
   }

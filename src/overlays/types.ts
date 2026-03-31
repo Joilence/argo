@@ -14,6 +14,7 @@ export const TEMPLATE_TYPES = [
   'headline-card',
   'callout',
   'image-card',
+  'arrow',
 ] as const;
 
 export type TemplateType = (typeof TEMPLATE_TYPES)[number];
@@ -58,7 +59,29 @@ export interface ImageCardCue {
   autoBackground?: boolean;
 }
 
-export type OverlayCue = LowerThirdCue | HeadlineCardCue | CalloutCue | ImageCardCue;
+export const ARROW_DIRECTIONS = [
+  'up', 'down', 'left', 'right',
+  'up-left', 'up-right', 'down-left', 'down-right',
+] as const;
+
+export type ArrowDirection = (typeof ARROW_DIRECTIONS)[number];
+
+export interface ArrowCue {
+  type: 'arrow';
+  /** Arrow direction. Default: 'down'. */
+  direction?: ArrowDirection;
+  /** Optional label text displayed alongside the arrow. */
+  label?: string;
+  /** Arrow color (CSS color value). Default: '#ef4444' (red). */
+  color?: string;
+  /** Arrow size in pixels. Default: 48. */
+  size?: number;
+  placement?: Zone;
+  motion?: MotionPreset;
+  autoBackground?: boolean;
+}
+
+export type OverlayCue = LowerThirdCue | HeadlineCardCue | CalloutCue | ImageCardCue | ArrowCue;
 
 export type OverlayManifestEntry = OverlayCue & {
   scene: string;
@@ -122,6 +145,10 @@ export interface SceneEntry {
   voice?: string;
   speed?: number;
   lang?: string;
+  /** Playback speed multiplier for this scene's video segment (e.g., 0.5 = half speed, 2.0 = double speed).
+   * Unlike `speed` (TTS speech rate), this controls the video playback speed during export.
+   * Default: 1.0 (normal speed). */
+  playbackSpeed?: number;
   _hint?: string;
   overlay?: OverlayCue;
   effects?: SceneEffect[];

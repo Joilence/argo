@@ -82,6 +82,50 @@ function callout(text: string, theme: BackgroundTheme): TemplateResult {
   };
 }
 
+function arrow(
+  theme: BackgroundTheme,
+  direction: string = 'down',
+  label?: string,
+  color: string = '#ef4444',
+  size: number = 48,
+): TemplateResult {
+  const isDark = theme === 'dark';
+
+  // SVG arrow paths for each direction
+  const arrowPaths: Record<string, string> = {
+    'up': 'M24 44 L24 8 M24 8 L12 20 M24 8 L36 20',
+    'down': 'M24 4 L24 40 M24 40 L12 28 M24 40 L36 28',
+    'left': 'M44 24 L8 24 M8 24 L20 12 M8 24 L20 36',
+    'right': 'M4 24 L40 24 M40 24 L28 12 M40 24 L28 36',
+    'up-left': 'M38 38 L10 10 M10 10 L10 24 M10 10 L24 10',
+    'up-right': 'M10 38 L38 10 M38 10 L24 10 M38 10 L38 24',
+    'down-left': 'M38 10 L10 38 M10 38 L24 38 M10 38 L10 24',
+    'down-right': 'M10 10 L38 38 M38 38 L24 38 M38 38 L38 24',
+  };
+
+  const path = arrowPaths[direction] ?? arrowPaths['down'];
+  const strokeWidth = Math.max(3, Math.round(size / 12));
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}" style="display:block;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.3))"><path d="${path}" stroke="${escapeHtml(color)}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
+
+  const parts: string[] = [svg];
+  if (label) {
+    parts.push(
+      `<div style="font-size:${Math.max(12, Math.round(size * 0.35))}px;font-weight:600;color:${isDark ? '#fff' : '#1a1a1a'};margin-top:6px;text-align:center;text-shadow:0 1px 3px rgba(0,0,0,0.3)">${escapeHtml(label)}</div>`,
+    );
+  }
+
+  return {
+    contentHtml: parts.join(''),
+    styles: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      padding: '8px',
+    },
+  };
+}
+
 function imageCard(src: string, theme: BackgroundTheme, title?: string, body?: string): TemplateResult {
   const isDark = theme === 'dark';
   const parts: string[] = [];
@@ -122,5 +166,7 @@ export function renderTemplate(cue: OverlayCue, theme: BackgroundTheme = 'dark')
       return callout(cue.text, theme);
     case 'image-card':
       return imageCard(cue.src, theme, cue.title, cue.body);
+    case 'arrow':
+      return arrow(theme, cue.direction, cue.label, cue.color, cue.size);
   }
 }

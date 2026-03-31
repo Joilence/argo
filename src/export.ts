@@ -2,14 +2,15 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Placement } from './tts/align.js';
-import type { TransitionConfig, WatermarkConfig } from './config.js';
+import type { TransitionConfig, WatermarkConfig, FrameConfig } from './config.js';
 import { buildTransitionFilters } from './transitions.js';
 import { runFfmpegWithProgress } from './progress.js';
 import { buildSpeedRampFilter, type Segment } from './speed-ramp.js';
-import { buildCameraMoveFilter, type CameraMove } from './camera-move.js';
+import { buildCameraMoveFilter, buildMotionBlurFilter, type CameraMove } from './camera-move.js';
 import { buildFreezeFilter, type ResolvedFreeze } from './freeze.js';
 import { getVideoFrameRate } from './media.js';
 import { buildOverlayPngFilters, isImportedVideo, type RenderedOverlayPng } from './overlays/render-to-png.js';
+import { buildFrameFilter } from './frame.js';
 
 export interface ExportOptions {
   demoName: string;
@@ -58,6 +59,11 @@ export interface ExportOptions {
   /** Apply contrast-adaptive sharpening (CAS) to restore text crispness.
    * true = strength 0.5. { strength: 0.0-1.0 } to tune. */
   sharpen?: boolean | { strength: number };
+  /** Frame the recording with padding, rounded corners, drop shadow, and background. */
+  frame?: FrameConfig;
+  /** Apply motion blur during camera move transitions.
+   * true = intensity 0.5. { intensity: 0.0-1.0 } to tune. */
+  motionBlur?: boolean | { intensity: number };
 }
 
 function formatSeconds(ms: number): string {
@@ -324,6 +330,17 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       filterParts.push(camFilter.filter);
       videoSource = camFilter.outputLabel;
     }
+
+    // Motion blur — applied immediately after camera moves to blur zoom/pan transitions
+    const motionBlur = options.motionBlur;
+    if (motionBlur) {
+      const intensity = typeof motionBlur === 'object' ? motionBlur.intensity : 0.5;
+      const mblurFilter = buildMotionBlurFilter(`[${videoSource}]`, intensity);
+      if (mblurFilter) {
+        filterParts.push(mblurFilter.filter);
+        videoSource = mblurFilter.outputLabel;
+      }
+    }
   }
 
   // Overlay PNGs for imported videos — composited AFTER transitions/camera moves,
@@ -335,6 +352,21 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
     filterParts.push(...ovlResult.filterParts);
     videoSource = ovlResult.videoSource;
     nextInput = ovlResult.nextInput;
+  }
+
+  // Frame effect — padding, rounded corners, shadow, background
+  // Applied AFTER all content processing, BEFORE watermark
+  const frame = options.frame;
+  if (frame) {
+    const outW = outputWidth ?? 1920;
+    const outH = outputHeight ?? 1080;
+    const frameResult = buildFrameFilter(videoSource, outW, outH, frame, nextInput);
+    if (frameResult) {
+      args.push(...frameResult.inputArgs);
+      filterParts.push(...frameResult.filterParts);
+      videoSource = frameResult.videoSource;
+      nextInput += frameResult.addedInputs;
+    }
   }
 
   // Watermark overlay — applied AFTER all other video filters (last in chain)

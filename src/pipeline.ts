@@ -8,7 +8,7 @@ import { exportVideo, checkFfmpeg } from './export.js';
 import { generateSrt, generateVtt } from './subtitles.js';
 import { generateChapterMetadata } from './chapters.js';
 import { buildSceneReport, formatSceneReport } from './report.js';
-import { applySpeedRampToTimeline } from './speed-ramp.js';
+import { applySpeedRampToTimeline, type SceneSpeedMap } from './speed-ramp.js';
 import { shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
 import {
   resolveFreezes,
@@ -213,18 +213,29 @@ export async function runPipeline(
     );
   }
 
+  // Read per-scene playback speeds from scenes manifest
+  const manifestPath = `${config.demosDir}/${demoName}.scenes.json`;
+  const sceneSpeeds: SceneSpeedMap = {};
+  let rawManifest: Array<{ scene?: string; playbackSpeed?: number; post?: Array<{ type?: string; atMs?: number; durationMs?: number }> }> = [];
+  try {
+    rawManifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    for (const entry of rawManifest) {
+      if (entry.scene && typeof entry.playbackSpeed === 'number' && entry.playbackSpeed !== 1.0) {
+        sceneSpeeds[entry.scene] = entry.playbackSpeed;
+      }
+    }
+  } catch { /* handled elsewhere */ }
+
   const speedRampPlan = applySpeedRampToTimeline(
     shiftedPlacements,
     shiftedDurationMs,
     config.export.speedRamp,
+    Object.keys(sceneSpeeds).length > 0 ? sceneSpeeds : undefined,
   );
 
   // Read freeze-frame holds from scenes manifest `post` arrays
-  const manifestPath = `${config.demosDir}/${demoName}.scenes.json`;
   const freezeSpecs: FreezeSpec[] = [];
   try {
-    const rawManifest: Array<{ scene?: string; post?: Array<{ type?: string; atMs?: number; durationMs?: number }> }> =
-      JSON.parse(readFileSync(manifestPath, 'utf-8'));
     for (const entry of rawManifest) {
       if (!entry.scene || !Array.isArray(entry.post)) continue;
       for (const effect of entry.post) {
@@ -307,6 +318,8 @@ export async function runPipeline(
     musicVolume: config.export.audio?.musicVolume,
     watermark: config.export.watermark,
     sharpen: config.export.sharpen,
+    frame: config.export.frame,
+    motionBlur: config.export.motionBlur,
     overlayPngs,
   };
   if (resolvedFreezes.length > 0) {
@@ -502,6 +515,8 @@ export async function runPipeline(
         cameraMoves: variantCameraMoves.length > 0 ? variantCameraMoves : undefined,
         watermark: config.export.watermark,
         sharpen: config.export.sharpen,
+        frame: config.export.frame,
+        motionBlur: config.export.motionBlur,
         freezeSpecs: variantResolvedFreezes.length > 0 ? variantResolvedFreezes : undefined,
         overlayPngs: variantOverlayPngs,
       });

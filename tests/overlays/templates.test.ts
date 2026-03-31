@@ -66,4 +66,68 @@ describe('renderTemplate', () => {
       expect(result.contentHtml).toContain('Description');
     });
   });
+
+  describe('arrow', () => {
+    it('renders an SVG arrow', () => {
+      const result = renderTemplate({ type: 'arrow' });
+      expect(result.contentHtml).toContain('<svg');
+      expect(result.contentHtml).toContain('<path');
+      expect(result.contentHtml).toContain('stroke=');
+    });
+
+    it('uses default red color and down direction', () => {
+      const result = renderTemplate({ type: 'arrow' });
+      expect(result.contentHtml).toContain('#ef4444');
+    });
+
+    it('renders with custom direction', () => {
+      const result = renderTemplate({ type: 'arrow', direction: 'up' });
+      // Up arrow path: M24 44 L24 8
+      expect(result.contentHtml).toContain('M24 44');
+    });
+
+    it('renders with custom color', () => {
+      const result = renderTemplate({ type: 'arrow', color: '#00ff00' });
+      expect(result.contentHtml).toContain('#00ff00');
+    });
+
+    it('renders with custom size', () => {
+      const result = renderTemplate({ type: 'arrow', size: 96 });
+      expect(result.contentHtml).toContain('width="96"');
+      expect(result.contentHtml).toContain('height="96"');
+    });
+
+    it('renders label text when provided', () => {
+      const result = renderTemplate({ type: 'arrow', label: 'Look here' });
+      expect(result.contentHtml).toContain('Look here');
+    });
+
+    it('escapes HTML in label text', () => {
+      const result = renderTemplate({ type: 'arrow', label: '<script>xss</script>' });
+      expect(result.contentHtml).not.toContain('<script>');
+      expect(result.contentHtml).toContain('&lt;script&gt;');
+    });
+
+    it('has flex column layout styles', () => {
+      const result = renderTemplate({ type: 'arrow' });
+      expect(result.styles.display).toBe('flex');
+      expect(result.styles.flexDirection).toBe('column');
+      expect(result.styles.alignItems).toBe('center');
+    });
+
+    it('adapts text color to theme', () => {
+      const dark = renderTemplate({ type: 'arrow', label: 'Test' }, 'dark');
+      const light = renderTemplate({ type: 'arrow', label: 'Test' }, 'light');
+      expect(dark.contentHtml).toContain('#fff');
+      expect(light.contentHtml).toContain('#1a1a1a');
+    });
+
+    it('supports all 8 directions', () => {
+      const directions = ['up', 'down', 'left', 'right', 'up-left', 'up-right', 'down-left', 'down-right'] as const;
+      for (const dir of directions) {
+        const result = renderTemplate({ type: 'arrow', direction: dir });
+        expect(result.contentHtml).toContain('<path');
+      }
+    });
+  });
 });

@@ -1,0 +1,206 @@
+/**
+ * Frame + Background filters for the "Screen Studio" look.
+ *
+ * Wraps the recording in a styled frame with padding, rounded corners,
+ * drop shadow, and a configurable background (solid color, gradient, or image).
+ *
+ * FFmpeg filter chain:
+ * 1. Scale video down to fit within padded area
+ * 2. Apply rounded corners via alpha mask (geq)
+ * 3. Create shadow layer (colorize black + blur)
+ * 4. Create background (color source or input image)
+ * 5. Composite: background → shadow → rounded video
+ */
+
+import type { FrameConfig, BackgroundConfig } from './config.js';
+
+export interface FrameFilterResult {
+  /** Filter expressions to add to filter_complex. */
+  filterParts: string[];
+  /** Additional ffmpeg input args (e.g., for background image). */
+  inputArgs: string[];
+  /** The output label for the framed video stream. */
+  videoSource: string;
+  /** Number of additional inputs added. */
+  addedInputs: number;
+}
+
+/**
+ * Parse a hex color string to r, g, b values (0-255).
+ */
+function parseHexColor(hex: string): { r: number; g: number; b: number } {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  return {
+    r: parseInt(h.slice(0, 2), 16),
+    g: parseInt(h.slice(2, 4), 16),
+    b: parseInt(h.slice(4, 6), 16),
+  };
+}
+
+/**
+ * Parse a CSS linear-gradient string to extract ffmpeg-compatible gradient info.
+ * Supports: linear-gradient(angle, color1, color2)
+ * Returns a simple two-stop gradient for ffmpeg gradients filter.
+ */
+function parseGradient(value: string): { color0: string; color1: string; angle: number } | null {
+  const match = value.match(/linear-gradient\(\s*(\d+)deg\s*,\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})\s*\)/);
+  if (!match) return null;
+  return {
+    angle: parseInt(match[1], 10),
+    color0: match[2],
+    color1: match[3],
+  };
+}
+
+/**
+ * Build the ffmpeg filter_complex parts for the frame effect.
+ *
+ * @param videoSource - Current video stream label (e.g., '0:v' or 'camfinal')
+ * @param outputWidth - Full output width in pixels
+ * @param outputHeight - Full output height in pixels
+ * @param config - Frame configuration
+ * @param nextInputIdx - Next available input index (for background image)
+ */
+export function buildFrameFilter(
+  videoSource: string,
+  outputWidth: number,
+  outputHeight: number,
+  config: FrameConfig,
+  nextInputIdx: number,
+): FrameFilterResult | null {
+  const padding = config.padding ?? 40;
+  const borderRadius = config.borderRadius ?? 12;
+  const shadowIntensity = config.shadow ?? 0.5;
+  const shadowColor = config.shadowColor ?? '#000000';
+  const background = config.background ?? { type: 'solid' as const, value: '#000000' };
+
+  if (padding <= 0) return null;
+
+  const innerW = outputWidth - 2 * padding;
+  const innerH = outputHeight - 2 * padding;
+  if (innerW <= 0 || innerH <= 0) return null;
+
+  // Ensure even dimensions
+  const evenInnerW = innerW % 2 === 0 ? innerW : innerW - 1;
+  const evenInnerH = innerH % 2 === 0 ? innerH : innerH - 1;
+
+  const filterParts: string[] = [];
+  const inputArgs: string[] = [];
+  let addedInputs = 0;
+  const srcRef = videoSource.includes(':') ? `[${videoSource}]` : `[${videoSource}]`;
+
+  // Step 1: Scale video to fit within padded area
+  filterParts.push(
+    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos[frm_scaled]`,
+  );
+
+  // Step 2: Apply rounded corners if borderRadius > 0
+  if (borderRadius > 0) {
+    const r = Math.min(borderRadius, Math.floor(evenInnerW / 2), Math.floor(evenInnerH / 2));
+    // Alpha mask for rounded corners using geq on yuva format
+    // The formula: for each corner, check if the pixel is within the rounded region
+    filterParts.push(
+      `[frm_scaled]format=yuva444p,` +
+      `geq=` +
+      `lum='lum(X,Y)':` +
+      `cb='cb(X,Y)':` +
+      `cr='cr(X,Y)':` +
+      `a='if(lte(hypot(` +
+        `max(0, ${r}-X) + max(0, X-(W-1-${r})),` +
+        `max(0, ${r}-Y) + max(0, Y-(H-1-${r}))` +
+      `), ${r}), 255, 0)'[frm_rounded]`,
+    );
+  } else {
+    filterParts.push(`[frm_scaled]format=yuva444p[frm_rounded]`);
+  }
+
+  // Step 3: Create background
+  let bgLabel: string;
+  if (background.type === 'image') {
+    // Background image input
+    inputArgs.push('-i', background.value);
+    const bgIdx = nextInputIdx + addedInputs;
+    addedInputs++;
+    filterParts.push(
+      `[${bgIdx}:v]scale=${outputWidth}:${outputHeight}:flags=lanczos,setsar=1[frm_bg]`,
+    );
+    bgLabel = 'frm_bg';
+  } else if (background.type === 'gradient') {
+    const grad = parseGradient(background.value);
+    if (grad) {
+      // ffmpeg gradients filter: creates a two-color gradient
+      // Convert angle to ffmpeg x0,y0,x1,y1 direction
+      const { color0, color1, angle } = grad;
+      const rad = (angle * Math.PI) / 180;
+      const x0 = Math.round(outputWidth / 2 - Math.sin(rad) * outputWidth / 2);
+      const y0 = Math.round(outputHeight / 2 - Math.cos(rad) * outputHeight / 2);
+      const x1 = Math.round(outputWidth / 2 + Math.sin(rad) * outputWidth / 2);
+      const y1 = Math.round(outputHeight / 2 + Math.cos(rad) * outputHeight / 2);
+      filterParts.push(
+        `gradients=s=${outputWidth}x${outputHeight}:` +
+        `c0=${color0}:c1=${color1}:` +
+        `x0=${x0}:y0=${y0}:x1=${x1}:y1=${y1}:` +
+        `duration=1:speed=0[frm_bg]`,
+      );
+      bgLabel = 'frm_bg';
+    } else {
+      // Fallback: parse first color from gradient string or use black
+      const colorMatch = background.value.match(/#[0-9a-fA-F]{3,8}/);
+      const fallbackColor = colorMatch ? colorMatch[0] : '#000000';
+      filterParts.push(
+        `color=c=${fallbackColor}:s=${outputWidth}x${outputHeight}[frm_bg]`,
+      );
+      bgLabel = 'frm_bg';
+    }
+  } else {
+    // Solid color
+    filterParts.push(
+      `color=c=${background.value}:s=${outputWidth}x${outputHeight}[frm_bg]`,
+    );
+    bgLabel = 'frm_bg';
+  }
+
+  // Step 4: Create shadow (if enabled)
+  if (shadowIntensity > 0) {
+    const { r, g, b } = parseHexColor(shadowColor);
+    const shadowAlpha = Math.min(1, shadowIntensity);
+    const blurRadius = Math.max(5, Math.round(padding * 0.4));
+    const shadowOffset = Math.max(2, Math.round(padding * 0.08));
+
+    // Create shadow: take the rounded video, colorize to shadow color, apply alpha, blur
+    filterParts.push(
+      `[frm_rounded]split[frm_fg][frm_shadow_src]`,
+    );
+    filterParts.push(
+      `[frm_shadow_src]colorchannelmixer=` +
+      `rr=0:rg=0:rb=0:ra=0:` +
+      `gr=0:gg=0:gb=0:ga=0:` +
+      `br=0:bg=0:bb=0:ba=0:` +
+      `ar=${(r / 255 * shadowAlpha).toFixed(3)}:ag=${(g / 255 * shadowAlpha).toFixed(3)}:ab=${(b / 255 * shadowAlpha).toFixed(3)}:aa=${shadowAlpha.toFixed(3)},` +
+      `boxblur=${blurRadius}:${Math.max(1, Math.round(blurRadius / 3))}[frm_shadow]`,
+    );
+
+    // Composite: background → shadow (offset) → video (centered)
+    const shadowX = padding + shadowOffset;
+    const shadowY = padding + shadowOffset;
+    filterParts.push(
+      `[${bgLabel}][frm_shadow]overlay=${shadowX}:${shadowY}:format=auto[frm_bg_shadow]`,
+    );
+    filterParts.push(
+      `[frm_bg_shadow][frm_fg]overlay=${padding}:${padding}:format=auto[frm_out]`,
+    );
+  } else {
+    // No shadow — composite directly on background
+    filterParts.push(
+      `[${bgLabel}][frm_rounded]overlay=${padding}:${padding}:format=auto[frm_out]`,
+    );
+  }
+
+  return {
+    filterParts,
+    inputArgs,
+    videoSource: 'frm_out',
+    addedInputs,
+  };
+}
