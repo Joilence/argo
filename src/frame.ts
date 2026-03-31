@@ -108,10 +108,12 @@ export function buildFrameFilter(
   let addedInputs = 0;
   const srcRef = videoSource.includes(':') ? `[${videoSource}]` : `[${videoSource}]`;
 
-  // Step 1: Scale video to fit within padded area, preserving aspect ratio
+  // Step 1: Scale video to fit within the padded area, preserving aspect ratio.
+  // Do NOT pad here: equal X/Y padding changes the inner aspect ratio and creates
+  // black bars for normal 16:9 recordings. We center the scaled stream later.
   filterParts.push(
-    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos:force_original_aspect_ratio=decrease,` +
-    `pad=${evenInnerW}:${evenInnerH}:(ow-iw)/2:(oh-ih)/2:color=black[frm_scaled]`,
+    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos:` +
+    `force_original_aspect_ratio=decrease:force_divisible_by=2[frm_scaled]`,
   );
 
   // Step 2: Apply rounded corners if borderRadius > 0
@@ -186,35 +188,34 @@ export function buildFrameFilter(
   if (shadowIntensity > 0) {
     const { r, g, b } = parseHexColor(shadowColor);
     const shadowAlpha = Math.min(1, shadowIntensity);
-    const blurRadius = Math.max(5, Math.round(padding * 0.4));
-    const shadowOffset = Math.max(2, Math.round(padding * 0.08));
-
-    // Create shadow: take the rounded video, colorize to shadow color, apply alpha, blur
+    const blurRadius = Math.max(8, Math.round(padding * 0.5));
+    const shadowInset = Math.max(2, Math.round(borderRadius * 0.3));
+    // Create shadow: scale down slightly so blur doesn't bleed past rounded corners,
+    // then colorize to shadow color, apply alpha, blur.
     filterParts.push(
       `[frm_rounded]split[frm_fg][frm_shadow_src]`,
     );
     filterParts.push(
-      `[frm_shadow_src]colorchannelmixer=` +
+      `[frm_shadow_src]scale=iw-${shadowInset * 2}:ih-${shadowInset * 2}:flags=fast_bilinear,` +
+      `colorchannelmixer=` +
       `rr=0:rg=0:rb=0:ra=0:` +
       `gr=0:gg=0:gb=0:ga=0:` +
       `br=0:bg=0:bb=0:ba=0:` +
       `ar=${(r / 255 * shadowAlpha).toFixed(3)}:ag=${(g / 255 * shadowAlpha).toFixed(3)}:ab=${(b / 255 * shadowAlpha).toFixed(3)}:aa=${shadowAlpha.toFixed(3)},` +
-      `boxblur=${blurRadius}:${Math.max(1, Math.round(blurRadius / 3))}[frm_shadow]`,
+      `boxblur=${blurRadius}:${Math.max(2, Math.round(blurRadius / 2))}[frm_shadow]`,
     );
 
-    // Composite: background → shadow (offset) → video (centered)
-    const shadowX = padding + shadowOffset;
-    const shadowY = padding + shadowOffset;
+    // Composite: background → centered shadow (slightly smaller) → video
     filterParts.push(
-      `[${bgLabel}][frm_shadow]overlay=${shadowX}:${shadowY}:format=auto:shortest=1[frm_bg_shadow]`,
+      `[${bgLabel}][frm_shadow]overlay=(W-w)/2:(H-h)/2+${Math.round(blurRadius * 0.15)}:format=auto:shortest=1[frm_bg_shadow]`,
     );
     filterParts.push(
-      `[frm_bg_shadow][frm_fg]overlay=${padding}:${padding}:format=auto:shortest=1[frm_out]`,
+      `[frm_bg_shadow][frm_fg]overlay=(W-w)/2:(H-h)/2:format=auto:shortest=1[frm_out]`,
     );
   } else {
     // No shadow — composite directly on background
     filterParts.push(
-      `[${bgLabel}][frm_rounded]overlay=${padding}:${padding}:format=auto:shortest=1[frm_out]`,
+      `[${bgLabel}][frm_rounded]overlay=(W-w)/2:(H-h)/2:format=auto:shortest=1[frm_out]`,
     );
   }
 
