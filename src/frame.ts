@@ -137,11 +137,12 @@ export function buildFrameFilter(
       const y0 = Math.round(outputHeight / 2 - Math.cos(rad) * outputHeight / 2);
       const x1 = Math.round(outputWidth / 2 + Math.sin(rad) * outputWidth / 2);
       const y1 = Math.round(outputHeight / 2 + Math.cos(rad) * outputHeight / 2);
+      // Generate one frame and loop infinitely so background covers full video duration
       filterParts.push(
         `gradients=s=${outputWidth}x${outputHeight}:` +
         `c0=${color0}:c1=${color1}:` +
         `x0=${x0}:y0=${y0}:x1=${x1}:y1=${y1}:` +
-        `duration=1:speed=0[frm_bg]`,
+        `duration=1:speed=0,loop=-1:1:0[frm_bg]`,
       );
       bgLabel = 'frm_bg';
     } else {
@@ -149,14 +150,14 @@ export function buildFrameFilter(
       const colorMatch = background.value.match(/#[0-9a-fA-F]{3,8}/);
       const fallbackColor = colorMatch ? colorMatch[0] : '#000000';
       filterParts.push(
-        `color=c=${fallbackColor}:s=${outputWidth}x${outputHeight}[frm_bg]`,
+        `color=c=${fallbackColor}:s=${outputWidth}x${outputHeight}:d=1,loop=-1:1:0[frm_bg]`,
       );
       bgLabel = 'frm_bg';
     }
   } else {
-    // Solid color
+    // Solid color — generate one frame and loop so overlay has infinite duration
     filterParts.push(
-      `color=c=${background.value}:s=${outputWidth}x${outputHeight}[frm_bg]`,
+      `color=c=${background.value}:s=${outputWidth}x${outputHeight}:d=1,loop=-1:1:0[frm_bg]`,
     );
     bgLabel = 'frm_bg';
   }
@@ -185,15 +186,15 @@ export function buildFrameFilter(
     const shadowX = padding + shadowOffset;
     const shadowY = padding + shadowOffset;
     filterParts.push(
-      `[${bgLabel}][frm_shadow]overlay=${shadowX}:${shadowY}:format=auto[frm_bg_shadow]`,
+      `[${bgLabel}][frm_shadow]overlay=${shadowX}:${shadowY}:format=auto:shortest=1[frm_bg_shadow]`,
     );
     filterParts.push(
-      `[frm_bg_shadow][frm_fg]overlay=${padding}:${padding}:format=auto[frm_out]`,
+      `[frm_bg_shadow][frm_fg]overlay=${padding}:${padding}:format=auto:shortest=1[frm_out]`,
     );
   } else {
     // No shadow — composite directly on background
     filterParts.push(
-      `[${bgLabel}][frm_rounded]overlay=${padding}:${padding}:format=auto[frm_out]`,
+      `[${bgLabel}][frm_rounded]overlay=${padding}:${padding}:format=auto:shortest=1[frm_out]`,
     );
   }
 
