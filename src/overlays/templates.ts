@@ -111,7 +111,7 @@ function arrow(
   const parts: string[] = [svg];
   if (label) {
     parts.push(
-      `<div style="font-size:${Math.max(12, Math.round(size * 0.35))}px;font-weight:600;color:${isDark ? '#fff' : '#1a1a1a'};margin-top:6px;text-align:center;text-shadow:0 1px 3px rgba(0,0,0,0.3)">${escapeHtml(label)}</div>`,
+      `<div style="font-size:${Math.max(12, Math.round(size * 0.35))}px;font-weight:600;color:${isDark ? '#1a1a1a' : '#fff'};margin-top:6px;text-align:center;text-shadow:${isDark ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 4px rgba(0,0,0,0.6)'}">${escapeHtml(label)}</div>`,
     );
   }
 

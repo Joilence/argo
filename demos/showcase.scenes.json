@@ -89,7 +89,7 @@
   },
   {
     "scene": "studio",
-    "text": "New in this release: the studio polish pack. Frame your recording with padding, rounded corners, and a drop shadow on any background. Add motion blur to camera zooms, slow down a hero scene to half speed, and drop an arrow annotation to guide the viewer's eye.",
+    "text": "The studio polish pack. Frame your recording with padding, rounded corners, and a drop shadow on any background. Add motion blur to camera zooms, slow down a hero scene to half speed, and drop arrow annotations to guide the viewer's eye.",
     "speed": 0.92,
     "overlay": {
       "type": "headline-card",

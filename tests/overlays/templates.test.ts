@@ -115,11 +115,12 @@ describe('renderTemplate', () => {
       expect(result.styles.alignItems).toBe('center');
     });
 
-    it('adapts text color to theme', () => {
+    it('adapts text color to theme (inverted — no background panel)', () => {
       const dark = renderTemplate({ type: 'arrow', label: 'Test' }, 'dark');
       const light = renderTemplate({ type: 'arrow', label: 'Test' }, 'light');
-      expect(dark.contentHtml).toContain('#fff');
-      expect(light.contentHtml).toContain('#1a1a1a');
+      // Arrow has no bg panel — dark overlay (light page) gets dark text, light overlay (dark page) gets white text
+      expect(dark.contentHtml).toContain('#1a1a1a');
+      expect(light.contentHtml).toContain('#fff');
     });
 
     it('supports all 8 directions', () => {

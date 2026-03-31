@@ -125,11 +125,12 @@ test('showcase', async ({ page, narration }) => {
     showOverlay(page, 'studio-arrow', {
       type: 'arrow',
       direction: 'up-left',
-      label: 'New!',
+      label: 'Look here',
       color: '#ef4444',
       size: 64,
       placement: 'bottom-right',
       motion: 'fade-in',
+      autoBackground: true,
     }, beat);
     await focusRing(page, '#polish-arrows', { color: '#fb7185', duration: beat, wait: true });
   });
