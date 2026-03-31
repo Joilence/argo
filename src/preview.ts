@@ -831,7 +831,15 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             : (ec?.musicVolume ?? 0.15);
           const exportMusicPath = includeBgm ? (activeMusicPath ?? ec?.musicPath) : undefined;
           const effectiveSpeedRamp = importedVideo ? undefined : ec?.speedRamp;
-          const rampResult = applySpeedRampToTimeline(placements, shiftedDurationMs, effectiveSpeedRamp);
+          // Read per-scene playback speeds from manifest (same as pipeline)
+          const sceneSpeeds: Record<string, number> = {};
+          for (const entry of scenes) {
+            if (entry.scene && typeof (entry as any).playbackSpeed === 'number' && (entry as any).playbackSpeed !== 1.0) {
+              sceneSpeeds[entry.scene] = (entry as any).playbackSpeed;
+            }
+          }
+          const hasSceneSpeeds = Object.keys(sceneSpeeds).length > 0 ? sceneSpeeds : undefined;
+          const rampResult = applySpeedRampToTimeline(placements, shiftedDurationMs, effectiveSpeedRamp, hasSceneSpeeds);
           const finalPlacements = rampResult.placements;
           const finalDurationMs = rampResult.totalDurationMs;
           const speedRampSegments = rampResult.segments.length > 0 ? rampResult.segments : undefined;

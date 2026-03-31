@@ -90,26 +90,29 @@ export function buildFrameFilter(
   let addedInputs = 0;
   const srcRef = videoSource.includes(':') ? `[${videoSource}]` : `[${videoSource}]`;
 
-  // Step 1: Scale video to fit within padded area
+  // Step 1: Scale video to fit within padded area, preserving aspect ratio
   filterParts.push(
-    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos[frm_scaled]`,
+    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos:force_original_aspect_ratio=decrease,` +
+    `pad=${evenInnerW}:${evenInnerH}:(ow-iw)/2:(oh-ih)/2:color=black[frm_scaled]`,
   );
 
   // Step 2: Apply rounded corners if borderRadius > 0
   if (borderRadius > 0) {
     const r = Math.min(borderRadius, Math.floor(evenInnerW / 2), Math.floor(evenInnerH / 2));
-    // Alpha mask for rounded corners using geq on yuva format
-    // The formula: for each corner, check if the pixel is within the rounded region
+    // Alpha mask for rounded corners using geq on yuva format.
+    // Uses clip() for anti-aliased edges — smooth 1px falloff instead of hard binary cutoff.
+    // dist = distance from nearest corner center (0 inside, >0 in corner region)
+    // alpha = clip(255 * (r + 1 - dist), 0, 255) gives a smooth transition
     filterParts.push(
       `[frm_scaled]format=yuva444p,` +
       `geq=` +
       `lum='lum(X,Y)':` +
       `cb='cb(X,Y)':` +
       `cr='cr(X,Y)':` +
-      `a='if(lte(hypot(` +
-        `max(0, ${r}-X) + max(0, X-(W-1-${r})),` +
-        `max(0, ${r}-Y) + max(0, Y-(H-1-${r}))` +
-      `), ${r}), 255, 0)'[frm_rounded]`,
+      `a='clip(255*(${r}+1-hypot(` +
+        `max(0,${r}-X)+max(0,X-(W-1-${r})),` +
+        `max(0,${r}-Y)+max(0,Y-(H-1-${r}))` +
+      `)),0,255)'[frm_rounded]`,
     );
   } else {
     filterParts.push(`[frm_scaled]format=yuva444p[frm_rounded]`);
