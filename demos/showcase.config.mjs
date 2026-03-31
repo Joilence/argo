@@ -16,7 +16,7 @@ export default defineConfig({
     crf: 23,
     transition: { type: 'fade-through-black', durationMs: 2000 },
     // speedRamp: { gapSpeed: 2.0, minGapMs: 600 },  // disabled for now — conflicts with transitions
-    formats: ['gif'],
+    // formats: ['gif'],  // too long for GIF — use argo clip for scene-level GIFs
     audio: { loudnorm: true },
     watermark: {
       src: 'assets/logo-watermark.png',
@@ -24,13 +24,14 @@ export default defineConfig({
       opacity: 0.16,
       margin: 26,
     },
+    sharpen: true,
     // Frame: wrap the recording in a styled frame with padding, rounded corners,
     // drop shadow, and a gradient background (the "Screen Studio" look).
     frame: {
       padding: 48,
       borderRadius: 16,
       shadow: 0.6,
-      background: { type: 'gradient', value: 'linear-gradient(135deg, #1a1a2e, #16213e)' },
+      background: { type: 'gradient', value: 'linear-gradient(135deg, #e2e8f0, #f8fafc)' },
     },
     // Motion blur: smooth zoom/pan transitions during camera moves.
     motionBlur: { intensity: 0.4 },

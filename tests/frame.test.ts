@@ -25,6 +25,7 @@ describe('buildFrameFilter', () => {
     // Should apply rounded corners
     expect(fc).toContain('format=yuva444p');
     expect(fc).toContain('geq=');
+    expect(fc).toContain("if(lte(min(");
     // Should create solid black background
     expect(fc).toContain('color=c=#000000:s=1920x1080:d=1,loop=-1:1:0');
     // Should have shadow (default 0.5)
@@ -32,6 +33,17 @@ describe('buildFrameFilter', () => {
     expect(fc).toContain('split[frm_fg][frm_shadow_src]');
     // Should have final overlay
     expect(fc).toContain('overlay=40:40:format=auto:shortest=1[frm_out]');
+  });
+
+  it('keeps straight edges fully opaque in the rounded-corner mask', () => {
+    const result = buildFrameFilter('0:v', 1920, 1080, { borderRadius: 12 }, 2);
+    expect(result).not.toBeNull();
+
+    const fc = result!.filterParts.join(';\n');
+    // The alpha expression should guard straight edges and only feather
+    // actual corner quadrants, not the full edge strips.
+    expect(fc).toContain("if(lte(min(");
+    expect(fc).not.toContain('max(0,12-X)+max(0,X-(W-1-12))');
   });
 
   it('disables shadow when shadow is 0', () => {

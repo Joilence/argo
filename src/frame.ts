@@ -54,6 +54,24 @@ function parseGradient(value: string): { color0: string; color1: string; angle: 
 }
 
 /**
+ * Build a rounded-rectangle alpha expression for ffmpeg geq.
+ *
+ * Straight edges remain fully opaque; only the corner quadrants get
+ * anti-aliased falloff. This avoids the "background leaking along the whole
+ * edge" artifact caused by treating every edge strip like a corner.
+ */
+function buildRoundedCornerAlphaExpr(radius: number): string {
+  const dx =
+    `if(lt(X,${radius}),${radius}-X,` +
+    `if(gt(X,W-1-${radius}),X-(W-1-${radius}),0))`;
+  const dy =
+    `if(lt(Y,${radius}),${radius}-Y,` +
+    `if(gt(Y,H-1-${radius}),Y-(H-1-${radius}),0))`;
+
+  return `if(lte(min(${dx},${dy}),0),255,clip(255*(${radius}+1-hypot(${dx},${dy})),0,255))`;
+}
+
+/**
  * Build the ffmpeg filter_complex parts for the frame effect.
  *
  * @param videoSource - Current video stream label (e.g., '0:v' or 'camfinal')
@@ -99,20 +117,16 @@ export function buildFrameFilter(
   // Step 2: Apply rounded corners if borderRadius > 0
   if (borderRadius > 0) {
     const r = Math.min(borderRadius, Math.floor(evenInnerW / 2), Math.floor(evenInnerH / 2));
-    // Alpha mask for rounded corners using geq on yuva format.
-    // Uses clip() for anti-aliased edges — smooth 1px falloff instead of hard binary cutoff.
-    // dist = distance from nearest corner center (0 inside, >0 in corner region)
-    // alpha = clip(255 * (r + 1 - dist), 0, 255) gives a smooth transition
+    const alphaExpr = buildRoundedCornerAlphaExpr(r);
+    // Rounded-corner alpha mask on yuva format.
+    // Keep straight edges fully opaque and anti-alias only the corner arcs.
     filterParts.push(
       `[frm_scaled]format=yuva444p,` +
       `geq=` +
       `lum='lum(X,Y)':` +
       `cb='cb(X,Y)':` +
       `cr='cr(X,Y)':` +
-      `a='clip(255*(${r}+1-hypot(` +
-        `max(0,${r}-X)+max(0,X-(W-1-${r})),` +
-        `max(0,${r}-Y)+max(0,Y-(H-1-${r}))` +
-      `)),0,255)'[frm_rounded]`,
+      `a='${alphaExpr}'[frm_rounded]`,
     );
   } else {
     filterParts.push(`[frm_scaled]format=yuva444p[frm_rounded]`);
@@ -136,10 +150,13 @@ export function buildFrameFilter(
       // Convert angle to ffmpeg x0,y0,x1,y1 direction
       const { color0, color1, angle } = grad;
       const rad = (angle * Math.PI) / 180;
-      const x0 = Math.round(outputWidth / 2 - Math.sin(rad) * outputWidth / 2);
-      const y0 = Math.round(outputHeight / 2 - Math.cos(rad) * outputHeight / 2);
-      const x1 = Math.round(outputWidth / 2 + Math.sin(rad) * outputWidth / 2);
-      const y1 = Math.round(outputHeight / 2 + Math.cos(rad) * outputHeight / 2);
+      // Clamp gradient endpoints to valid pixel range (gradients filter rejects negatives)
+      const clampX = (v: number) => Math.max(0, Math.min(outputWidth, Math.round(v)));
+      const clampY = (v: number) => Math.max(0, Math.min(outputHeight, Math.round(v)));
+      const x0 = clampX(outputWidth / 2 - Math.sin(rad) * outputWidth / 2);
+      const y0 = clampY(outputHeight / 2 - Math.cos(rad) * outputHeight / 2);
+      const x1 = clampX(outputWidth / 2 + Math.sin(rad) * outputWidth / 2);
+      const y1 = clampY(outputHeight / 2 + Math.cos(rad) * outputHeight / 2);
       // Generate one frame and loop infinitely so background covers full video duration
       filterParts.push(
         `gradients=s=${outputWidth}x${outputHeight}:` +

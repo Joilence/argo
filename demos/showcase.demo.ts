@@ -119,14 +119,16 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#polish-frame', { color: '#60a5fa', duration: beat, wait: true });
     await focusRing(page, '#polish-motion-blur', { color: '#e879f9', duration: beat, wait: true });
     await focusRing(page, '#polish-scene-speed', { color: '#22d3ee', duration: beat, wait: true });
-    // Arrow annotation card — show an actual arrow overlay pointing at it
+    // Arrow annotation card — place a visible arrow near the lower-right card.
+    // Overlay placement is zone-based, so use the bottom-right zone and point
+    // back up-left toward the card instead of the viewport's top-right corner.
     showOverlay(page, 'studio-arrow', {
       type: 'arrow',
-      direction: 'down',
+      direction: 'up-left',
       label: 'New!',
       color: '#ef4444',
-      size: 56,
-      placement: 'top-right',
+      size: 64,
+      placement: 'bottom-right',
       motion: 'fade-in',
     }, beat);
     await focusRing(page, '#polish-arrows', { color: '#fb7185', duration: beat, wait: true });
