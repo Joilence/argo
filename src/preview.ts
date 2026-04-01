@@ -209,12 +209,33 @@ function updatePreviewOverlayEntry(target: Record<string, any>, overlay: Overlay
     changed = setManifestField(overlayTarget, 'body', undefined) || changed;
     changed = setManifestField(overlayTarget, 'kicker', undefined) || changed;
     changed = setManifestField(overlayTarget, 'src', undefined) || changed;
+    // Clear arrow fields
+    changed = setManifestField(overlayTarget, 'direction', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'label', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'color', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'size', undefined) || changed;
+  } else if (overlay.type === 'arrow') {
+    changed = setManifestField(overlayTarget, 'direction', 'direction' in overlay ? overlay.direction : undefined) || changed;
+    changed = setManifestField(overlayTarget, 'label', 'label' in overlay ? overlay.label : undefined) || changed;
+    changed = setManifestField(overlayTarget, 'color', 'color' in overlay ? overlay.color : undefined) || changed;
+    changed = setManifestField(overlayTarget, 'size', 'size' in overlay ? overlay.size : undefined) || changed;
+    // Clear non-arrow fields
+    changed = setManifestField(overlayTarget, 'text', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'title', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'body', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'kicker', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'src', undefined) || changed;
   } else {
     changed = setManifestField(overlayTarget, 'text', undefined) || changed;
     changed = setManifestField(overlayTarget, 'title', 'title' in overlay ? overlay.title : undefined) || changed;
     changed = setManifestField(overlayTarget, 'body', 'body' in overlay ? overlay.body : undefined) || changed;
     changed = setManifestField(overlayTarget, 'kicker', 'kicker' in overlay ? overlay.kicker : undefined) || changed;
     changed = setManifestField(overlayTarget, 'src', 'src' in overlay ? overlay.src : undefined) || changed;
+    // Clear arrow fields
+    changed = setManifestField(overlayTarget, 'direction', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'label', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'color', undefined) || changed;
+    changed = setManifestField(overlayTarget, 'size', undefined) || changed;
   }
 
   return changed;
@@ -3594,6 +3615,7 @@ function snapshotAllScenes() {
       text: s.vo?.text ?? '',
       voice: s.vo?.voice ?? '',
       speed: s.vo?.speed ?? '',
+      playbackSpeed: s.playbackSpeed ?? '',
       overlay: s.overlay ? JSON.parse(JSON.stringify(s.overlay)) : null,
       effects: s.effects?.length ? JSON.parse(JSON.stringify(s.effects)) : [],
     });
@@ -3612,7 +3634,8 @@ function isSceneModified(sceneName) {
   const text = card.querySelector('[data-field="text"]')?.value ?? '';
   const voice = card.querySelector('[data-field="voice"]')?.value ?? '';
   const speed = card.querySelector('[data-field="speed"]')?.value ?? '';
-  if (text !== snap.text || voice !== snap.voice || String(speed) !== String(snap.speed)) return true;
+  const pbSpeed = card.querySelector('[data-field="playbackSpeed"]')?.value ?? '';
+  if (text !== snap.text || voice !== snap.voice || String(speed) !== String(snap.speed) || String(pbSpeed) !== String(snap.playbackSpeed)) return true;
   // Check overlay and effects from s.overlay / s.effects (single source of truth)
   const s = scenes.find(sc => sc.name === sceneName);
   const currentOverlay = s?.overlay;
@@ -3649,6 +3672,8 @@ function undoScene(sceneName) {
   if (voiceEl) voiceEl.value = snap.voice;
   const speedEl = card.querySelector('[data-field="speed"]');
   if (speedEl) speedEl.value = snap.speed;
+  const pbSpeedEl = card.querySelector('[data-field="playbackSpeed"]');
+  if (pbSpeedEl) pbSpeedEl.value = snap.playbackSpeed;
   // Restore effects
   const s = scenes.find(sc => sc.name === sceneName);
   if (s) {

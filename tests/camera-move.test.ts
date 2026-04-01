@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildCameraMoveFilter,
+  detectChainedPairs,
   shiftCameraMoves,
   scaleCameraMoves,
   type CameraMove,
@@ -101,6 +102,25 @@ describe('buildCameraMoveFilter', () => {
     expect(result!.filter).not.toContain('1.5000+(1.3000-1.5000)');
     // Each move zooms out independently
     expect(result!.filter).toContain('1+1-(in_time');
+  });
+
+  it('does not chain overlapping moves (negative gap)', () => {
+    const move1: CameraMove = {
+      startMs: 1000, durationMs: 500,
+      x: 500, y: 300, w: 200, h: 200,
+      scale: 1.5, holdMs: 3000,
+    };
+    const move2: CameraMove = {
+      startMs: 3000, durationMs: 500,
+      x: 800, y: 600, w: 200, h: 200,
+      scale: 1.3, holdMs: 500,
+    };
+    // move1 ends at 1000+500+3000+500=5000, move2 starts at 3000 → gap = -2000 (overlapping)
+    expect(detectChainedPairs([move1, move2]).size).toBe(0);
+    const result = buildCameraMoveFilter([move1, move2], 1920, 1080, '[0:v]');
+    expect(result).not.toBeNull();
+    // Should NOT chain — each zooms independently
+    expect(result!.filter).not.toContain('1.5000+(1.3000-1.5000)');
   });
 
   it('uses default scale of 1.5 when not specified', () => {

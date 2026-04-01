@@ -67,7 +67,7 @@ export function detectChainedPairs(moves: CameraMove[]): Set<number> {
     const scaleB = moves[i + 1].scale ?? 1.5;
     if (scaleA <= 1.0 || scaleB <= 1.0) continue;
     const gap = moves[i + 1].startMs - moveEndMs(moves[i]);
-    if (gap <= CHAIN_GAP_MS) {
+    if (gap >= 0 && gap <= CHAIN_GAP_MS) {
       chained.add(i);
     }
   }
@@ -145,7 +145,8 @@ export function buildCameraMoveFilter(
       const next = sortedMoves[i + 1];
       const nextScale = next.scale ?? 1.5;
       // Pan transition: from current hold end to next zoom-in end
-      const panDur = Math.min(CHAIN_PAN_MS / 1000, (next.startMs - move.startMs - move.durationMs - holdMs) / 1000 + next.durationMs / 1000);
+      const rawPanDur = (next.startMs - move.startMs - move.durationMs - holdMs) / 1000 + next.durationMs / 1000;
+      const panDur = Math.max(0.1, Math.min(CHAIN_PAN_MS / 1000, rawPanDur));
       const panStart = holdEnd;
       const panEnd = panStart + panDur;
 
