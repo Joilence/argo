@@ -92,6 +92,8 @@ interface PreviewData {
   videoDurationMs: number;
   /** Pipeline metadata from last recording (voices, resolution, engine). */
   pipelineMeta: Record<string, unknown> | null;
+  /** Camera moves for post-export zoom/pan effects. */
+  cameraMoves: Array<import('./camera-move.js').CameraMove>;
   /** Preview-only background music state. */
   bgm: {
     hasGenerated: boolean;
@@ -403,6 +405,13 @@ function loadPreviewData(
     try { videoDurationMs = getVideoDurationMs(exportedMp4); } catch { /* ignore */ }
   }
 
+  // Load camera moves from sidecar file, shift for head trim
+  const cameraMovesPath = join(demoDir, '.timing.camera-moves.json');
+  let cameraMoves: CameraMove[] = readJsonFile<CameraMove[]>(cameraMovesPath, []);
+  if (headTrimMs > 0 && cameraMoves.length > 0) {
+    cameraMoves = shiftCameraMoves(cameraMoves, headTrimMs);
+  }
+
   return {
     demoName,
     timing,
@@ -416,6 +425,7 @@ function loadPreviewData(
     videoDurationMs,
     pipelineMeta,
     bgm,
+    cameraMoves,
   };
 }
 
@@ -722,6 +732,18 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, changed }));
+        return;
+      }
+
+      // Save camera moves to .timing.camera-moves.json
+      if (url === '/api/camera-moves' && req.method === 'POST') {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const moves = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as CameraMove[];
+        const cameraMovesPath = join(demoDir, '.timing.camera-moves.json');
+        writeFileSync(cameraMovesPath, JSON.stringify(moves, null, 2) + '\n', 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
         return;
       }
 
@@ -1401,6 +1423,7 @@ const PREVIEW_HTML = `<!DOCTYPE html>
     position: relative;
     background: #000;
     display: flex;
+    overflow: hidden;
     align-items: center;
     justify-content: center;
     min-height: 0;
@@ -2031,6 +2054,17 @@ const PREVIEW_HTML = `<!DOCTYPE html>
     margin-bottom: 6px;
   }
 
+  .camera-moves-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .camera-moves-section .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .camera-move-entry { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; padding: 6px 8px; background: var(--card); border-radius: 6px; border: 1px solid var(--border); }
+  .camera-move-entry label { font-size: 10px; color: var(--muted); display: block; }
+  .camera-move-entry input { width: 60px; }
+  .camera-move-entry .btn-target { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+  .camera-move-entry .btn-target.active { background: #ef4444; }
+  .timeline-camera-move { position: absolute; bottom: 0; height: 5px; background: rgba(245,158,11,0.4); border-radius: 2px; pointer-events: auto; cursor: pointer; z-index: 2; }
+  .timeline-camera-move:hover { background: rgba(245,158,11,0.7); }
+  .timeline-camera-chain { position: absolute; bottom: 2px; height: 1px; background: rgba(245,158,11,0.6); pointer-events: none; z-index: 1; }
+  .video-container.target-mode { cursor: crosshair; }
   .effects-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
   .effects-section .section-title {
     font-size: 11px;
@@ -2153,6 +2187,13 @@ const PREVIEW_HTML = `<!DOCTYPE html>
         </label>
         <span class="toggle-label">Overlays</span>
       </div>
+      <div class="toggle-group">
+        <label class="toggle-switch" title="Camera Preview">
+          <input type="checkbox" id="cb-camera" checked>
+          <span class="slider"></span>
+        </label>
+        <span class="toggle-label">Camera</span>
+      </div>
     </div>
   </div>
 </div>
@@ -2274,11 +2315,17 @@ function getPreviewDurationMs() {
   return mediaDurationMs || DATA.videoDurationMs || DATA.sceneReport?.totalDurationMs || 0;
 }
 
+function moveEndMs(m) {
+  return m.startMs + m.durationMs + (m.holdMs ?? 0) + m.durationMs;
+}
+
 function renderTimelineMarkers() {
   const totalMs = getPreviewDurationMs();
   if (!totalMs) return;
 
   timelineBar.querySelectorAll('.timeline-scene').forEach(node => node.remove());
+  timelineBar.querySelectorAll('.timeline-camera-move').forEach(node => node.remove());
+  timelineBar.querySelectorAll('.timeline-camera-chain').forEach(node => node.remove());
 
   scenes.forEach((s, i) => {
     const pct = (s.startMs / totalMs) * 100;
@@ -2290,15 +2337,56 @@ function renderTimelineMarkers() {
     marker.style.left = pct + '%';
     marker.style.width = Math.max(widthPct, 2) + '%';
     const hasOverlay = s.overlay?.type;
-    marker.innerHTML = esc(s.name) + (hasOverlay ? '<span class="has-overlay"></span>' : '');
+    // Scene name is validated (alphanumeric + hyphens only) so esc() is safe for textContent
+    marker.textContent = s.name;
+    if (hasOverlay) {
+      const dot = document.createElement('span');
+      dot.className = 'has-overlay';
+      marker.appendChild(dot);
+    }
     marker.dataset.scene = s.name;
     marker.addEventListener('click', (e) => {
       e.stopPropagation();
-      // Don't seek to scene start if user just finished scrubbing
       if (justScrubbed) return;
       seekToScene(s);
     });
     timelineBar.appendChild(marker);
+  });
+
+  // Camera move markers on timeline
+  const moves = DATA.cameraMoves ?? [];
+  const CHAIN_GAP_MS = 1500;
+  moves.forEach((m, i) => {
+    const scale = m.scale ?? 1.5;
+    if (scale <= 1.0) return;
+    const startPct = (m.startMs / totalMs) * 100;
+    const endMs = moveEndMs(m);
+    const widthPct = ((endMs - m.startMs) / totalMs) * 100;
+    const el = document.createElement('div');
+    el.className = 'timeline-camera-move';
+    el.style.left = startPct + '%';
+    el.style.width = Math.max(widthPct, 0.5) + '%';
+    el.title = 'Camera: ' + (m.scene ?? '') + ' (' + scale.toFixed(1) + 'x)';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      video.currentTime = m.startMs / 1000;
+    });
+    timelineBar.appendChild(el);
+
+    // Chain indicator between connected moves
+    if (i + 1 < moves.length) {
+      const next = moves[i + 1];
+      const gap = next.startMs - endMs;
+      if (gap >= 0 && gap <= CHAIN_GAP_MS && (next.scale ?? 1.5) > 1.0) {
+        const chainStart = (endMs / totalMs) * 100;
+        const chainWidth = ((next.startMs - endMs) / totalMs) * 100;
+        const chain = document.createElement('div');
+        chain.className = 'timeline-camera-chain';
+        chain.style.left = chainStart + '%';
+        chain.style.width = chainWidth + '%';
+        timelineBar.appendChild(chain);
+      }
+    }
   });
 }
 
@@ -2346,6 +2434,7 @@ video.addEventListener('timeupdate', () => {
     activeScene = current;
     updateActiveSceneUI();
     updateOverlayVisibility(currentMs);
+    applyCameraTransform(currentMs);
   }
 });
 
@@ -2516,6 +2605,11 @@ function updateOverlayVisibility(currentMs) {
 
 document.getElementById('cb-overlays').addEventListener('change', () => {
   updateOverlayVisibility(video.currentTime * 1000);
+});
+
+document.getElementById('cb-camera').addEventListener('change', () => {
+  cameraPreviewEnabled = document.getElementById('cb-camera').checked;
+  applyCameraTransform(video.currentTime * 1000);
 });
 
 // ─── Drag-to-snap overlay positioning ──────────────────────────────────────
@@ -2706,6 +2800,7 @@ function renderSceneList() {
       </div>
       \${renderOverlayFields(s)}
       \${renderEffectsFields(s)}
+      \${renderCameraMovesFields(s)}
       <div class="btn-row">
         <button class="btn btn-undo" data-scene="\${esc(s.name)}" onclick="undoScene('\${esc(s.name)}')" style="display:none" title="Revert to last saved state">Undo</button>
         <span class="btn-group"><button class="btn" onclick="previewScene('\${esc(s.name)}')" title="Play this scene">&#9654;</button><button class="btn" onclick="pausePreview()" title="Pause">&#9646;&#9646;</button></span>
@@ -3229,6 +3324,231 @@ async function saveEffects() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(fx),
   });
+}
+
+// ─── Camera Moves UI ─────────────────────────────────────────────────────
+
+function getMovesForScene(sceneName) {
+  const s = scenes.find(sc => sc.name === sceneName);
+  if (!s) return [];
+  const nextScene = scenes[scenes.indexOf(s) + 1];
+  const sceneEnd = nextScene ? nextScene.startMs : getPreviewDurationMs();
+  return (DATA.cameraMoves ?? []).filter(m => m.startMs >= s.startMs && m.startMs < sceneEnd);
+}
+
+function renderCameraMovesFields(s) {
+  const moves = getMovesForScene(s.name);
+  if (moves.length === 0 && !(DATA.cameraMoves?.length)) {
+    return ''; // No camera moves at all — hide section
+  }
+  const items = moves.map((m, i) => {
+    const globalIdx = (DATA.cameraMoves ?? []).indexOf(m);
+    return \`<div class="camera-move-entry">
+      <div><label>Scale</label><input type="number" data-cm-field="scale" data-cm-idx="\${globalIdx}" step="0.1" min="1" max="5" value="\${m.scale ?? 1.5}"></div>
+      <div><label>Duration</label><input type="number" data-cm-field="durationMs" data-cm-idx="\${globalIdx}" step="100" min="100" value="\${m.durationMs}"></div>
+      <div><label>Hold</label><input type="number" data-cm-field="holdMs" data-cm-idx="\${globalIdx}" step="100" min="0" value="\${m.holdMs ?? 0}"></div>
+      <div><label>Target</label><button class="btn-target" onclick="enterTargetMode(\${globalIdx})" title="Click on video to set zoom target">Set</button></div>
+      <button class="btn btn-sm btn-danger" onclick="removeCameraMove(\${globalIdx})" title="Remove">&times;</button>
+    </div>\`;
+  }).join('');
+
+  return \`<div class="camera-moves-section">
+    <div class="section-title">
+      <span>Camera Moves (\${moves.length})</span>
+      <button class="btn btn-sm" onclick="addCameraMove('\${esc(s.name)}')">+ Add</button>
+    </div>
+    <div class="camera-moves-list" data-scene="\${esc(s.name)}">\${items}</div>
+  </div>\`;
+}
+
+function refreshCameraMovesUI(sceneName) {
+  const container = document.querySelector('.camera-moves-list[data-scene="' + sceneName + '"]');
+  if (!container) return;
+  const s = scenes.find(sc => sc.name === sceneName);
+  if (!s) return;
+  const moves = getMovesForScene(sceneName);
+  container.innerHTML = moves.map((m, i) => {
+    const globalIdx = (DATA.cameraMoves ?? []).indexOf(m);
+    return \`<div class="camera-move-entry">
+      <div><label>Scale</label><input type="number" data-cm-field="scale" data-cm-idx="\${globalIdx}" step="0.1" min="1" max="5" value="\${m.scale ?? 1.5}"></div>
+      <div><label>Duration</label><input type="number" data-cm-field="durationMs" data-cm-idx="\${globalIdx}" step="100" min="100" value="\${m.durationMs}"></div>
+      <div><label>Hold</label><input type="number" data-cm-field="holdMs" data-cm-idx="\${globalIdx}" step="100" min="0" value="\${m.holdMs ?? 0}"></div>
+      <div><label>Target</label><button class="btn-target" onclick="enterTargetMode(\${globalIdx})" title="Click on video to set zoom target">Set</button></div>
+      <button class="btn btn-sm btn-danger" onclick="removeCameraMove(\${globalIdx})" title="Remove">&times;</button>
+    </div>\`;
+  }).join('');
+  wireCameraMoveListeners();
+  renderTimelineMarkers();
+}
+
+function wireCameraMoveListeners() {
+  document.querySelectorAll('[data-cm-field]').forEach(input => {
+    input.addEventListener('change', () => {
+      const idx = Number(input.dataset.cmIdx);
+      const field = input.dataset.cmField;
+      const move = DATA.cameraMoves?.[idx];
+      if (!move) return;
+      const val = parseFloat(input.value);
+      if (!Number.isFinite(val)) return;
+      if (field === 'scale') move.scale = val;
+      else if (field === 'durationMs') move.durationMs = val;
+      else if (field === 'holdMs') move.holdMs = val;
+      markDirty();
+      renderTimelineMarkers();
+    });
+  });
+}
+
+function addCameraMove(sceneName) {
+  const s = scenes.find(sc => sc.name === sceneName);
+  if (!s) return;
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
+  if (!DATA.cameraMoves) DATA.cameraMoves = [];
+  DATA.cameraMoves.push({
+    scene: sceneName,
+    startMs: s.startMs + 500,
+    durationMs: 400,
+    x: Math.round(vw / 2),
+    y: Math.round(vh / 2),
+    w: Math.round(vw / 3),
+    h: Math.round(vh / 3),
+    scale: 1.5,
+    holdMs: 1000,
+  });
+  DATA.cameraMoves.sort((a, b) => a.startMs - b.startMs);
+  refreshCameraMovesUI(sceneName);
+  markDirty();
+}
+
+function removeCameraMove(globalIdx) {
+  const move = DATA.cameraMoves?.[globalIdx];
+  if (!move) return;
+  const sceneName = move.scene ?? scenes.find(s => move.startMs >= s.startMs)?.name;
+  DATA.cameraMoves.splice(globalIdx, 1);
+  if (sceneName) refreshCameraMovesUI(sceneName);
+  markDirty();
+}
+
+let targetModeIdx = -1;
+
+function enterTargetMode(globalIdx) {
+  targetModeIdx = globalIdx;
+  document.querySelector('.video-container')?.classList.add('target-mode');
+  document.querySelectorAll('.btn-target').forEach(b => b.classList.remove('active'));
+  const activeBtn = document.querySelector('[onclick="enterTargetMode(' + globalIdx + ')"]');
+  if (activeBtn) activeBtn.classList.add('active');
+}
+
+// Click-to-target handler on video
+document.querySelector('.video-container')?.addEventListener('click', (e) => {
+  if (targetModeIdx < 0) return;
+  const move = DATA.cameraMoves?.[targetModeIdx];
+  if (!move) return;
+
+  const rect = video.getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  const clickY = e.clientY - rect.top;
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
+  move.x = Math.round((clickX / rect.width) * vw);
+  move.y = Math.round((clickY / rect.height) * vh);
+  move.w = Math.round(vw / (move.scale ?? 1.5));
+  move.h = Math.round(vh / (move.scale ?? 1.5));
+
+  document.querySelector('.video-container')?.classList.remove('target-mode');
+  document.querySelectorAll('.btn-target').forEach(b => b.classList.remove('active'));
+  targetModeIdx = -1;
+  markDirty();
+});
+
+async function saveCameraMoves() {
+  if (!DATA.cameraMoves?.length) return;
+  await fetch('/api/camera-moves', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(DATA.cameraMoves),
+  });
+}
+
+// ─── CSS Transform Camera Preview ───────────────────────────────────────
+
+function computeCameraTransform(currentMs) {
+  const moves = DATA.cameraMoves ?? [];
+  if (moves.length === 0) return null;
+  const CHAIN_GAP = 1500;
+
+  for (let i = 0; i < moves.length; i++) {
+    const m = moves[i];
+    const scale = m.scale ?? 1.5;
+    if (scale <= 1.0) continue;
+
+    const fadeIn = m.durationMs;
+    const hold = m.holdMs ?? 0;
+    const fadeOut = fadeIn;
+    const start = m.startMs;
+    const zoomInEnd = start + fadeIn;
+    const holdEnd = zoomInEnd + hold;
+    const zoomOutEnd = holdEnd + fadeOut;
+
+    // Check for chained next move
+    const next = moves[i + 1];
+    const nextScale = next?.scale ?? 1.5;
+    const isChained = next && nextScale > 1.0 && (next.startMs - zoomOutEnd) >= 0 && (next.startMs - zoomOutEnd) <= CHAIN_GAP;
+
+    // Zoom in
+    if (currentMs >= start && currentMs < zoomInEnd) {
+      const t = (currentMs - start) / fadeIn;
+      const s = 1 + t * (scale - 1);
+      return { scale: s, x: m.x, y: m.y };
+    }
+    // Hold
+    if (currentMs >= zoomInEnd && currentMs < holdEnd) {
+      return { scale, x: m.x, y: m.y };
+    }
+    // Chained pan or zoom out
+    if (isChained) {
+      const panDur = Math.max(100, Math.min(1000, next.startMs - holdEnd + next.durationMs));
+      const panEnd = holdEnd + panDur;
+      if (currentMs >= holdEnd && currentMs < panEnd) {
+        const t = (currentMs - holdEnd) / panDur;
+        const eased = 1 - Math.pow(1 - t, 3);
+        const s = scale + (nextScale - scale) * eased;
+        const x = m.x + (next.x - m.x) * eased;
+        const y = m.y + (next.y - m.y) * eased;
+        return { scale: s, x, y };
+      }
+      if (currentMs >= panEnd && currentMs < next.startMs + next.durationMs) {
+        return { scale: nextScale, x: next.x, y: next.y };
+      }
+    } else if (currentMs >= holdEnd && currentMs < zoomOutEnd) {
+      const t = 1 - (currentMs - holdEnd) / fadeOut;
+      const s = 1 + t * (scale - 1);
+      return { scale: s, x: m.x, y: m.y };
+    }
+  }
+  return null;
+}
+
+let cameraPreviewEnabled = true;
+
+function applyCameraTransform(currentMs) {
+  if (!cameraPreviewEnabled) {
+    video.style.transform = '';
+    return;
+  }
+  const cam = computeCameraTransform(currentMs);
+  if (!cam || cam.scale <= 1.01) {
+    video.style.transform = '';
+    video.style.transformOrigin = '';
+    return;
+  }
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
+  const originX = (cam.x / vw) * 100;
+  const originY = (cam.y / vh) * 100;
+  video.style.transformOrigin = originX + '% ' + originY + '%';
+  video.style.transform = 'scale(' + cam.scale.toFixed(3) + ')';
 }
 
 async function saveTiming() {
@@ -3755,6 +4075,7 @@ document.getElementById('btn-save').addEventListener('click', async () => {
     await saveVoiceover();
     await saveOverlays();
     await saveEffects();
+    await saveCameraMoves();
     await saveTiming();
     clearDirty();
     setStatus('All changes saved', 'saved');
@@ -3777,6 +4098,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
   await saveVoiceover();
   await saveOverlays();
   await saveEffects();
+  await saveCameraMoves();
   await saveTiming();
   clearDirty();
   const overlay = document.getElementById('recording-overlay');
@@ -3821,6 +4143,7 @@ document.getElementById('btn-rerecord').addEventListener('click', async () => {
     await saveVoiceover();
     await saveOverlays();
     await saveEffects();
+    await saveCameraMoves();
     await saveTiming();
     clearDirty();
   }
