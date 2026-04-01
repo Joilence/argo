@@ -3526,6 +3526,9 @@ function syncFormValuesToScenes() {
     if (voiceEl?.value && s.vo) s.vo.voice = voiceEl.value;
     const speedEl = document.querySelector('input[data-scene="' + s.name + '"][data-field="speed"]');
     if (speedEl?.value && s.vo) s.vo.speed = parseFloat(speedEl.value);
+    const pbSpeedEl = document.querySelector('input[data-scene="' + s.name + '"][data-field="playbackSpeed"]');
+    const pbVal = pbSpeedEl?.value ? parseFloat(pbSpeedEl.value) : undefined;
+    s.playbackSpeed = (Number.isFinite(pbVal) && pbVal !== 1.0) ? pbVal : undefined;
   }
 }
 
