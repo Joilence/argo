@@ -91,7 +91,9 @@ export function buildFrameFilter(
   const borderRadius = config.borderRadius ?? 12;
   const shadowIntensity = config.shadow ?? 0.5;
   const shadowColor = config.shadowColor ?? '#000000';
-  const background = config.background ?? { type: 'solid' as const, value: '#000000' };
+  const background = config.background?.type === 'auto'
+    ? { type: 'solid' as const, value: '#000000' }  // 'auto' should be resolved before reaching here
+    : config.background ?? { type: 'solid' as const, value: '#000000' };
 
   if (padding <= 0) return null;
 
@@ -138,7 +140,7 @@ export function buildFrameFilter(
   let bgLabel: string;
   if (background.type === 'image') {
     // Background image input
-    inputArgs.push('-i', background.value);
+    inputArgs.push('-i', background.value ?? 'black');
     const bgIdx = nextInputIdx + addedInputs;
     addedInputs++;
     filterParts.push(
@@ -146,7 +148,7 @@ export function buildFrameFilter(
     );
     bgLabel = 'frm_bg';
   } else if (background.type === 'gradient') {
-    const grad = parseGradient(background.value);
+    const grad = parseGradient(background.value ?? '');
     if (grad) {
       // ffmpeg gradients filter: creates a two-color gradient
       // Convert angle to ffmpeg x0,y0,x1,y1 direction
@@ -169,7 +171,7 @@ export function buildFrameFilter(
       bgLabel = 'frm_bg';
     } else {
       // Fallback: parse first color from gradient string or use black
-      const colorMatch = background.value.match(/#[0-9a-fA-F]{3,8}/);
+      const colorMatch = (background.value ?? '').match(/#[0-9a-fA-F]{3,8}/);
       const fallbackColor = colorMatch ? colorMatch[0] : '#000000';
       filterParts.push(
         `color=c=${fallbackColor}:s=${outputWidth}x${outputHeight}:d=1,loop=-1:1:0[frm_bg]`,
@@ -179,7 +181,7 @@ export function buildFrameFilter(
   } else {
     // Solid color — generate one frame and loop so overlay has infinite duration
     filterParts.push(
-      `color=c=${background.value}:s=${outputWidth}x${outputHeight}:d=1,loop=-1:1:0[frm_bg]`,
+      `color=c=${background.value ?? '#000000'}:s=${outputWidth}x${outputHeight}:d=1,loop=-1:1:0[frm_bg]`,
     );
     bgLabel = 'frm_bg';
   }

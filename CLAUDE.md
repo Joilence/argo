@@ -80,6 +80,36 @@ Per-scene freeze-frame holds via `post: [{ type: 'freeze', atMs, durationMs }]` 
 
 `export.watermark: { src, position, opacity, margin }` overlays a PNG at any corner via ffmpeg `overlay` filter with `colorchannelmixer` for opacity. Applied as the LAST video filter in the chain (after transitions, camera moves, downscale).
 
+### Frame Effect (`src/frame.ts`)
+
+`export.frame: { padding, borderRadius, shadow, shadowColor, background }` wraps the recording in a styled frame with rounded corners, drop shadow, and configurable background. Creates the "Screen Studio" look. Applied AFTER overlay PNGs and camera moves, BEFORE watermark (same layer priority as CAS sharpening).
+
+Background types: `solid` (hex color), `gradient` (CSS `linear-gradient()` string), `image` (file path), `auto` (probes video edge colors via `probeEdgeColors()` in `src/media.ts` — downscales frame to 16x16, runs 2-means clustering to extract dominant color pair).
+
+ffmpeg gotchas discovered during implementation:
+- `gradients` source filter rejects negative coordinate values — clamp `x0/y0/x1/y1` to `[0, dimension]`
+- `color` and `gradients` sources need `d=1,loop=-1:1:0` to produce infinite frames — without loop, `overlay` stops when background source ends (black strip artifact)
+- Rounded corners use `geq` alpha mask with separate straight-edge vs corner-arc logic — naive `hypot` on all edges causes background bleed along straight sides
+- Shadow layer must be scaled down (inset) before `boxblur` to prevent blur bleeding past rounded corners
+- All `overlay` compositing uses `shortest=1` so output stops when the video stream ends
+- Frame preserves aspect ratio via `force_original_aspect_ratio=decrease` + `pad` — prevents distortion on non-matching sources
+
+### Contrast-Adaptive Sharpening (`src/export.ts`)
+
+`export.sharpen: true | { strength: 0.5 }` applies ffmpeg `cas` filter to restore text crispness lost during screen recording encode. Applied as the last video filter after all compositing (after watermark). Single filter append, low complexity.
+
+### Motion Blur (`src/camera-move.ts`)
+
+`export.motionBlur: true | { intensity: 0.5 }` applies `tblend=all_mode=average` during camera move transitions. Time-gated via ffmpeg `enable='between(t,start,end)'` expressions — only activates during zoom-in and zoom-out windows, skips static hold intervals. Each window is padded by ~1 frame to avoid abrupt boundaries. Without time-gating, `tblend` on the full stream has no visible effect (static frames blended with identical frames = no change).
+
+### Per-Scene Playback Speed
+
+`playbackSpeed: 0.5` in `.scenes.json` controls video playback rate per scene (separate from TTS `speed`). Integrated into speed ramp segments via `SceneSpeedMap` in `src/speed-ramp.ts`. Wired through pipeline, CLI export, and preview export paths.
+
+### Arrow Overlay Template
+
+`overlay: { type: 'arrow', direction, label, color, size }` — SVG arrow annotation with 8 directions. Arrow labels use **inverted** color logic compared to other templates: arrows have no background panel, so dark pages get white text and light pages get dark text. Other templates (lower-third, headline-card) have opaque backgrounds, so they use the opposite mapping.
+
 ### AI Music Generation (`src/music/musicgen.ts` + preview UI)
 
 MusicGen (Xenova/musicgen-small) generates background music from text prompts. Runs in the **browser** preview UI via Web Worker + WebGPU (NOT in the Node.js pipeline). The preview server serves `/musicgen-worker.js` as a same-origin module worker (blob URL workers can't cross-origin import from CDN). Generated WAV is saved to `.argo/<demo>/music/bgm.wav` and picked up by the export pipeline via `audio.music`. CRITICAL: must use `device: 'webgpu'` — WASM fallback is orders of magnitude slower. Use `q4` dtype to reduce model size (~450MB vs 1.8GB fp32).
@@ -111,7 +141,7 @@ Custom `test` fixture extends Playwright's `test` with a `narration` fixture tha
 - Pipeline writes `<demo>.meta.json` alongside the video with TTS engine, voices, resolution, and export settings for provenance tracking
 - Live per-scene recording progress via JSONL sidecar: `narration.mark()` appends to `ARGO_PROGRESS_PATH`, `record()` polls and prints scene names
 - `post` array in scenes manifest supports `{ type: 'freeze', atMs, durationMs }` for freeze-frame holds — resolved to absolute positions, adjusts placements/chapters/subtitles
-- All export features (freeze, camera moves, music, watermark, loudnorm) must be wired through ALL export paths: pipeline, CLI `argo export`, preview Export, and viewport variants — missing any path causes silent divergence
+- All export features (freeze, camera moves, music, watermark, loudnorm, sharpen, frame, motionBlur) must be wired through ALL export paths: pipeline, CLI `argo export`, preview Export, and viewport variants — missing any path causes silent divergence
 
 ## Demo Authoring
 
@@ -218,6 +248,8 @@ Custom `test` fixture extends Playwright's `test` with a `narration` fixture tha
 - `-shortest` must be skipped when freeze-frame holds extend the video beyond the audio duration.
 - Blob URL Web Workers with `type: 'module'` cannot cross-origin import from CDN — serve the worker script from the same origin instead.
 - MusicGen WebGPU dtype: use `q4` (not `fp32`) to avoid ~15GB Chrome RAM usage. `q4` weights are ~450MB total.
+- `tblend` motion blur without time-gating has no visible effect — static frames blended with identical static frames produce no change. Always pass camera moves to `buildMotionBlurFilter()` for `enable` expression generation.
+- ffmpeg `gradients` source filter rejects negative `x0/y0/x1/y1` values — angle-to-coordinate conversion can produce negatives for certain angles. Always clamp.
 
 ## Security Invariants
 

@@ -356,7 +356,18 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
 
   // Frame effect — padding, rounded corners, shadow, background
   // Applied AFTER all content processing, BEFORE watermark
-  const frame = options.frame;
+  let frame = options.frame;
+  if (frame && frame.background?.type === 'auto') {
+    // Resolve 'auto' background by probing video edge colors
+    const { probeEdgeColors } = await import('./media.js');
+    const edgeColors = probeEdgeColors(videoPath);
+    frame = {
+      ...frame,
+      background: edgeColors
+        ? { type: 'gradient' as const, value: `linear-gradient(135deg, ${edgeColors.color0}, ${edgeColors.color1})` }
+        : { type: 'solid' as const, value: '#000000' },
+    };
+  }
   if (frame) {
     const outW = outputWidth ?? 1920;
     const outH = outputHeight ?? 1080;

@@ -134,6 +134,96 @@ export function detectVideoTheme(
 }
 
 /**
+ * Extract the two most dominant colors from the edges of a video frame.
+ *
+ * Samples a frame near the middle of the video, crops thin strips from all
+ * four edges, downscales to a tiny resolution, and clusters the pixel colors
+ * into two buckets. Returns the two hex colors sorted dark-to-light, suitable
+ * for a gradient background that blends with the video content.
+ *
+ * Returns null on failure (best-effort — caller should fall back to a default).
+ */
+export function probeEdgeColors(
+  videoPath: string,
+  timestampMs?: number,
+): { color0: string; color1: string } | null {
+  try {
+    // Probe duration to pick a mid-point frame if no timestamp given
+    let ts = timestampMs;
+    if (ts === undefined) {
+      const durationMs = getVideoDurationMs(videoPath);
+      ts = Math.round(durationMs * 0.15); // 15% in — past intro transitions
+    }
+
+    const ss = (ts / 1000).toFixed(3);
+    // Extract a single frame, aggressively downscale to 16x16 to get dominant colors.
+    // The tiny resolution naturally averages out details, leaving only the broad
+    // color regions — effectively sampling the whole frame including edges.
+    const result = spawnSync('ffmpeg', [
+      '-ss', ss,
+      '-i', videoPath,
+      '-frames:v', '1',
+      '-vf', 'scale=16:16:flags=area',
+      '-f', 'rawvideo',
+      '-pix_fmt', 'rgb24',
+      'pipe:1',
+    ], { stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 16 * 16 * 3 + 4096 });
+
+    if (!result.stdout || result.stdout.length < 16 * 16 * 3) {
+      return null;
+    }
+
+    const pixels = result.stdout as Buffer;
+    const pixelCount = Math.floor(pixels.length / 3);
+
+    // Simple 2-means clustering: start with darkest and lightest pixel
+    const colors: Array<[number, number, number]> = [];
+    for (let i = 0; i < pixelCount; i++) {
+      colors.push([pixels[i * 3], pixels[i * 3 + 1], pixels[i * 3 + 2]]);
+    }
+
+    // Sort by luminance, pick darkest and lightest as seeds
+    colors.sort((a, b) => {
+      const lumA = 0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2];
+      const lumB = 0.299 * b[0] + 0.587 * b[1] + 0.114 * b[2];
+      return lumA - lumB;
+    });
+
+    let c0 = colors[0];
+    let c1 = colors[colors.length - 1];
+
+    // Refine with 3 iterations of k-means
+    for (let iter = 0; iter < 3; iter++) {
+      const sum0 = [0, 0, 0], sum1 = [0, 0, 0];
+      let count0 = 0, count1 = 0;
+      for (const c of colors) {
+        const d0 = (c[0] - c0[0]) ** 2 + (c[1] - c0[1]) ** 2 + (c[2] - c0[2]) ** 2;
+        const d1 = (c[0] - c1[0]) ** 2 + (c[1] - c1[1]) ** 2 + (c[2] - c1[2]) ** 2;
+        if (d0 <= d1) {
+          sum0[0] += c[0]; sum0[1] += c[1]; sum0[2] += c[2]; count0++;
+        } else {
+          sum1[0] += c[0]; sum1[1] += c[1]; sum1[2] += c[2]; count1++;
+        }
+      }
+      if (count0 > 0) c0 = [Math.round(sum0[0] / count0), Math.round(sum0[1] / count0), Math.round(sum0[2] / count0)];
+      if (count1 > 0) c1 = [Math.round(sum1[0] / count1), Math.round(sum1[1] / count1), Math.round(sum1[2] / count1)];
+    }
+
+    const toHex = (c: [number, number, number]) =>
+      '#' + c.map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+
+    // Sort dark-to-light for consistent gradient direction
+    const lum0 = 0.299 * c0[0] + 0.587 * c0[1] + 0.114 * c0[2];
+    const lum1 = 0.299 * c1[0] + 0.587 * c1[1] + 0.114 * c1[2];
+    return lum0 <= lum1
+      ? { color0: toHex(c0), color1: toHex(c1) }
+      : { color0: toHex(c1), color1: toHex(c0) };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Probe video dimensions (width × height) using ffprobe.
  * Returns { width, height } or null on failure.
  */

@@ -172,12 +172,13 @@ Key fields: `scene` (required, matches `mark()`), `text` (spoken narration — o
 
 ### Overlay Templates
 
-Four types, each with a `type` discriminant. All support `placement`, `motion`, and `autoBackground`.
+Five types, each with a `type` discriminant. All support `placement`, `motion`, and `autoBackground`.
 
 - **`lower-third`**: `{ type: 'lower-third', text: '...' }` — text banner
 - **`headline-card`**: `{ type: 'headline-card', title: '...', kicker: '...', body: '...' }` — large card
 - **`callout`**: `{ type: 'callout', text: '...' }` — compact annotation
 - **`image-card`**: `{ type: 'image-card', src: 'screenshot.png', title: '...' }` — image with caption (`src` relative to `demos/assets/`)
+- **`arrow`**: `{ type: 'arrow', direction: 'down', label: 'Look here', color: '#ef4444', size: 48 }` — SVG arrow annotation. 8 directions: `up`, `down`, `left`, `right`, `up-left`, `up-right`, `down-left`, `down-right`
 
 **Zones:** `bottom-center` (default) | `top-left` | `top-right` | `bottom-left` | `bottom-right` | `center`. One overlay per zone; different zones can show simultaneously. Prefer `top-right`/`bottom-right` for apps with left sidebars.
 
@@ -269,6 +270,10 @@ export: {
 - **Variants:** Re-record at different viewports for pixel-perfect multi-format. TTS runs once, then pipeline records + exports per variant. Output: `videos/<demo>-<variant>.mp4`. Much better than blur-fill for responsive content.
 - **Background music:** `audio.music` loops a track under narration at `musicVolume`, with 2-second fade-out. Or generate music from a text prompt in preview (MusicGen + WebGPU).
 - **Watermark:** `watermark: { src, position, opacity, margin }` overlays a PNG at any corner. Applied as the last video filter.
+- **Sharpening:** `sharpen: true` applies ffmpeg CAS (contrast-adaptive sharpening) for crisp UI text. `{ strength: 0.5 }` to tune.
+- **Frame:** `frame: { padding, borderRadius, shadow, background }` wraps recording in a styled frame with rounded corners, drop shadow, and background. Background `{ type: 'auto' }` probes video colors for a matching gradient. Also supports `solid`, `gradient`, and `image`.
+- **Motion blur:** `motionBlur: { intensity: 0.5 }` applies time-gated blur during camera move zoom-in/zoom-out transitions. Static frames stay sharp.
+- **Per-scene speed:** Add `playbackSpeed: 0.5` to scene entries in `.scenes.json` for slow-mo or fast-forward per scene (separate from TTS `speed`).
 - **Progress bar:** Export shows encoding progress automatically when duration is known
 
 ### Freeze-Frame Holds

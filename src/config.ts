@@ -64,16 +64,21 @@ export interface WatermarkConfig {
   margin?: number;
 }
 
-export type BackgroundType = 'solid' | 'gradient' | 'image';
+export type BackgroundType = 'solid' | 'gradient' | 'image' | 'auto';
 
 export interface BackgroundConfig {
-  /** Type of background. */
+  /** Type of background.
+   * - solid: hex color
+   * - gradient: CSS linear-gradient string
+   * - image: path to background image
+   * - auto: derives a gradient from the video's edge colors */
   type: BackgroundType;
   /** Value depends on type:
    * - solid: hex color string (e.g., '#1a1a2e')
    * - gradient: CSS gradient string (e.g., 'linear-gradient(135deg, #667eea, #764ba2)')
-   * - image: path to background image file */
-  value: string;
+   * - image: path to background image file
+   * - auto: ignored (colors are probed from video) */
+  value?: string;
 }
 
 export interface FrameConfig {

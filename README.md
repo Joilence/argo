@@ -401,6 +401,38 @@ export: {
 - **Loudnorm** — EBU R128 loudness normalization. Makes voiceover volume consistent across TTS engines and scenes.
 - **Background music** — loops to fill the video, mixed at a constant low volume under narration, 2-second fade-out at the end. Works with silent demos too (music becomes the sole audio track).
 
+### Studio Polish
+
+```js
+export: {
+  sharpen: true,                        // contrast-adaptive sharpening (CAS) for crisp text
+  frame: {                              // "Screen Studio" look
+    padding: 48,
+    borderRadius: 16,
+    shadow: 0.5,
+    background: { type: 'auto' },       // auto-derives gradient from video colors
+    // background: { type: 'gradient', value: 'linear-gradient(135deg, #1a1a2e, #16213e)' },
+    // background: { type: 'solid', value: '#000000' },
+    // background: { type: 'image', value: 'assets/bg.jpg' },
+  },
+  motionBlur: { intensity: 0.5 },       // blur during camera move transitions
+}
+```
+
+- **Frame** — Wraps the recording with padding, rounded corners, drop shadow, and a background. Background `auto` probes the video for dominant edge colors and generates a matching gradient.
+- **Sharpening** — ffmpeg CAS filter restores text crispness lost during screen recording encode.
+- **Motion blur** — Time-gated `tblend` that only activates during zoom-in/zoom-out camera move windows. Static frames stay sharp.
+
+### Per-Scene Playback Speed
+
+Control video playback rate per scene in the manifest (separate from TTS speech `speed`):
+
+```json
+{ "scene": "hero", "text": "...", "playbackSpeed": 0.5 }
+```
+
+Useful for slow-mo hero moments or fast-forwarding setup steps.
+
 ### Post-Export Camera Moves
 
 Zoom into specific elements with frame-exact ffmpeg `zoompan` — overlays stay unaffected:
