@@ -66,6 +66,7 @@ interface PreviewVoiceoverEntry {
   speed?: number;
   lang?: string;
   _hint?: string;
+  playbackSpeed?: number;
 }
 
 interface PreviewSceneReport {
@@ -171,6 +172,7 @@ function updatePreviewVoiceoverEntry(target: Record<string, any>, entry: Preview
   changed = setManifestField(target, 'speed', entry.speed) || changed;
   changed = setManifestField(target, 'lang', entry.lang) || changed;
   changed = setManifestField(target, '_hint', entry._hint) || changed;
+  changed = setManifestField(target, 'playbackSpeed', entry.playbackSpeed) || changed;
   return changed;
 }
 
@@ -304,6 +306,7 @@ function loadPreviewData(
     speed: s.speed,
     lang: s.lang,
     _hint: s._hint,
+    playbackSpeed: s.playbackSpeed,
   }));
 
   const overlays: OverlayManifestEntry[] = scenes
@@ -2234,6 +2237,7 @@ const scenes = Object.entries(DATA.timing)
     name,
     startMs,
     vo: DATA.voiceover.find(v => v.scene === name),
+    playbackSpeed: DATA.voiceover.find(v => v.scene === name)?.playbackSpeed,
     overlay: DATA.overlays.find(o => o.scene === name),
     effects: DATA.effects[name] ?? [],
     rendered: DATA.renderedOverlays[name],
@@ -2674,6 +2678,10 @@ function renderSceneList() {
           <label>Speed</label>
           <input data-field="speed" data-scene="\${esc(s.name)}" type="number" step="0.1" min="0.5" max="2" value="\${s.vo?.speed ?? ''}\" placeholder="1.0">
         </div>
+        <div style="flex:0 0 80px">
+          <label title="Video playback speed (not TTS)">Playback</label>
+          <input data-field="playbackSpeed" data-scene="\${esc(s.name)}" type="number" step="0.25" min="0.25" max="4" value="\${s.playbackSpeed ?? ''}" placeholder="1.0">
+        </div>
       </div>
       \${renderOverlayFields(s)}
       \${renderEffectsFields(s)}
@@ -2831,6 +2839,32 @@ function renderDynamicOverlayFields(sceneName, type, ov) {
         <label>Src</label>
         <input data-field="overlay-src" data-scene="\${esc(sceneName)}" value="\${esc(ov?.src ?? '')}" placeholder="assets/example.png">
       </div>\`;
+  } else if (type === 'arrow') {
+    fields += \`
+      <div class="field-group" style="display:flex;gap:8px">
+        <div style="flex:1">
+          <label>Direction</label>
+          <select data-field="overlay-direction" data-scene="\${esc(sceneName)}">
+            \${['up','down','left','right','up-left','up-right','down-left','down-right'].map(d =>
+              \`<option value="\${d}" \${(ov?.direction ?? 'down') === d ? 'selected' : ''}>\${d}</option>\`
+            ).join('')}
+          </select>
+        </div>
+        <div style="flex:1">
+          <label>Color</label>
+          <input type="color" data-field="overlay-color" data-scene="\${esc(sceneName)}" value="\${ov?.color ?? '#ef4444'}">
+        </div>
+      </div>
+      <div class="field-group" style="display:flex;gap:8px">
+        <div style="flex:1">
+          <label>Label</label>
+          <input data-field="overlay-text" data-scene="\${esc(sceneName)}" value="\${esc(ov?.label ?? '')}" placeholder="optional">
+        </div>
+        <div style="flex:0 0 80px">
+          <label>Size</label>
+          <input type="number" data-field="overlay-size" data-scene="\${esc(sceneName)}" value="\${ov?.size ?? 48}" min="16" max="128" step="4">
+        </div>
+      </div>\`;
   }
   return fields;
 }
@@ -2850,6 +2884,7 @@ function renderOverlayFields(s) {
             <option value="headline-card" \${type === 'headline-card' ? 'selected' : ''}>headline-card</option>
             <option value="callout" \${type === 'callout' ? 'selected' : ''}>callout</option>
             <option value="image-card" \${type === 'image-card' ? 'selected' : ''}>image-card</option>
+            <option value="arrow" \${type === 'arrow' ? 'selected' : ''}>arrow</option>
           </select>
         </div>
         \${type ? \`<div style="flex:1">
@@ -2878,6 +2913,9 @@ function renderOverlayFields(s) {
           <option value="fade-in" \${ov?.motion === 'fade-in' ? 'selected' : ''}>fade-in</option>
           <option value="slide-in" \${ov?.motion === 'slide-in' ? 'selected' : ''}>slide-in</option>
         </select>
+      </div>\` : ''}
+      \${type ? \`<div class="field-group" style="display:flex;align-items:center;gap:8px">
+        <label style="margin:0"><input type="checkbox" data-field="overlay-autoBackground" data-scene="\${esc(s.name)}" \${ov?.autoBackground ? 'checked' : ''}> Auto theme</label>
       </div>\` : ''}
       <div class="overlay-fields-dynamic" data-scene="\${esc(s.name)}">
         \${renderDynamicOverlayFields(s.name, type, ov)}
@@ -2952,6 +2990,8 @@ function wireOverlayListeners(sceneName) {
       else if (field === 'overlay-text') {
         if (s.overlay.type === 'lower-third' || s.overlay.type === 'callout') {
           s.overlay.text = input.value;
+        } else if (s.overlay.type === 'arrow') {
+          s.overlay.label = input.value || undefined;
         } else {
           s.overlay.title = input.value;
         }
@@ -2959,6 +2999,13 @@ function wireOverlayListeners(sceneName) {
       else if (field === 'overlay-body') s.overlay.body = input.value || undefined;
       else if (field === 'overlay-kicker') s.overlay.kicker = input.value || undefined;
       else if (field === 'overlay-src') s.overlay.src = input.value || undefined;
+      else if (field === 'overlay-direction') s.overlay.direction = input.value || undefined;
+      else if (field === 'overlay-color') s.overlay.color = input.value || undefined;
+      else if (field === 'overlay-size') s.overlay.size = input.value ? parseInt(input.value, 10) : undefined;
+      else if (field === 'overlay-autoBackground') {
+        if (input.checked) s.overlay.autoBackground = true;
+        else delete s.overlay.autoBackground;
+      }
 
       markDirty();
 
@@ -3475,6 +3522,11 @@ function collectVoiceover() {
     if (Number.isFinite(speed)) entry.speed = speed;
     else delete entry.speed;
 
+    const pbSpeedEl = document.querySelector('input[data-scene="' + s.name + '"][data-field="playbackSpeed"]');
+    const pbSpeed = pbSpeedEl?.value ? parseFloat(pbSpeedEl.value) : undefined;
+    if (Number.isFinite(pbSpeed) && pbSpeed !== 1.0) entry.playbackSpeed = pbSpeed;
+    else delete entry.playbackSpeed;
+
     return entry;
   });
 }
@@ -3618,7 +3670,7 @@ function undoScene(sceneName) {
     const so = snap.overlay || {};
     const textField = card.querySelector('[data-field="overlay-text"]');
     if (textField) {
-      textField.value = so.type === 'lower-third' || so.type === 'callout' ? (so.text ?? '') : (so.title ?? '');
+      textField.value = so.type === 'lower-third' || so.type === 'callout' ? (so.text ?? '') : so.type === 'arrow' ? (so.label ?? '') : (so.title ?? '');
     }
     const bodyField = card.querySelector('[data-field="overlay-body"]');
     if (bodyField) bodyField.value = so.body ?? '';
@@ -3626,6 +3678,14 @@ function undoScene(sceneName) {
     if (kickerField) kickerField.value = so.kicker ?? '';
     const srcField = card.querySelector('[data-field="overlay-src"]');
     if (srcField) srcField.value = so.src ?? '';
+    const dirField = card.querySelector('[data-field="overlay-direction"]');
+    if (dirField) dirField.value = so.direction ?? 'down';
+    const colorField = card.querySelector('[data-field="overlay-color"]');
+    if (colorField) colorField.value = so.color ?? '#ef4444';
+    const sizeField = card.querySelector('[data-field="overlay-size"]');
+    if (sizeField) sizeField.value = String(so.size ?? 48);
+    const autoBgField = card.querySelector('[data-field="overlay-autoBackground"]');
+    if (autoBgField) autoBgField.checked = !!so.autoBackground;
     const placementField = card.querySelector('[data-field="overlay-placement"]');
     if (placementField) placementField.value = so.placement ?? 'bottom-center';
     const motionField = card.querySelector('[data-field="overlay-motion"]');
