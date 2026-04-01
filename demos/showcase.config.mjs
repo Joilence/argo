@@ -33,9 +33,8 @@ export default defineConfig({
       shadow: 0.32,
       background: { type: 'gradient', value: 'linear-gradient(135deg, #1a1a2e, #16213e)' },
     },
-    // Motion blur: disabled until time-gated to camera move intervals only.
-    // Currently tblend applies to the full stream — no visible benefit on static frames.
-    // motionBlur: { intensity: 0.4 },
+    // Motion blur: time-gated to zoom-in/zoom-out intervals via ffmpeg enable expressions.
+    motionBlur: { intensity: 0.5 },
     // variants: [
     //   { name: 'vertical', video: { width: 1080, height: 1920 } },
     //   { name: 'square',   video: { width: 1080, height: 1080 } },

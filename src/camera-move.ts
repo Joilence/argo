@@ -28,6 +28,10 @@ export interface CameraMove {
   holdMs?: number;
 }
 
+function formatSeconds(value: number): string {
+  return value.toFixed(4);
+}
+
 /**
  * Build an ffmpeg filter expression for a single camera move.
  *
@@ -131,6 +135,8 @@ export function buildCameraMoveFilter(
 export function buildMotionBlurFilter(
   inputLabel: string,
   intensity: number = 0.5,
+  moves: CameraMove[] = [],
+  fps = 30,
 ): { filter: string; outputLabel: string } | null {
   const clamped = Math.max(0, Math.min(1, intensity));
   if (clamped <= 0) return null;
@@ -138,7 +144,33 @@ export function buildMotionBlurFilter(
   // tblend averages current and previous frame with configurable opacity.
   // all_opacity controls how much of the blended result to use (0 = no blur, 1 = full blend).
   const outputLabel = 'mblur';
-  const filter = `${inputLabel}tblend=all_mode=average:all_opacity=${clamped.toFixed(2)}[${outputLabel}]`;
+  const validFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const framePadSec = 1 / validFps;
+  const windows: string[] = [];
+
+  for (const move of moves) {
+    const scale = move.scale ?? 1.5;
+    if (scale <= 1.0 || move.durationMs <= 0) continue;
+
+    const startSec = move.startMs / 1000;
+    const zoomInEnd = startSec + move.durationMs / 1000;
+    const holdEnd = zoomInEnd + Math.max(0, move.holdMs ?? 0) / 1000;
+    const zoomOutEnd = holdEnd + move.durationMs / 1000;
+
+    const zoomInStart = Math.max(0, startSec - framePadSec);
+    const zoomInStop = zoomInEnd + framePadSec;
+    windows.push(`between(t,${formatSeconds(zoomInStart)},${formatSeconds(zoomInStop)})`);
+
+    const zoomOutStart = Math.max(0, holdEnd - framePadSec);
+    const zoomOutStop = zoomOutEnd + framePadSec;
+    windows.push(`between(t,${formatSeconds(zoomOutStart)},${formatSeconds(zoomOutStop)})`);
+  }
+
+  if (moves.length > 0 && windows.length === 0) return null;
+
+  const enableExpr = windows.length > 0 ? `:enable='${windows.join('+')}'` : '';
+  const filter =
+    `${inputLabel}tblend=all_mode=average:all_opacity=${clamped.toFixed(2)}${enableExpr}[${outputLabel}]`;
 
   return { filter, outputLabel };
 }

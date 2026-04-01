@@ -27,7 +27,12 @@ beforeEach(() => {
 });
 
 function setupHappy() {
-  mockedExecFileSync.mockReturnValue(Buffer.from('ok'));
+  mockedExecFileSync.mockImplementation((cmd, args) => {
+    if (cmd === 'ffprobe') {
+      return '25/1' as any;
+    }
+    return Buffer.from('ok') as any;
+  });
   mockedExistsSync.mockImplementation((p) => {
     const path = String(p);
     if (path.includes('.imported')) return false;
@@ -95,5 +100,35 @@ describe('exportVideo with motionBlur', () => {
     // No filter_complex since no camera moves
     const fc = a.includes('-filter_complex') ? a[a.indexOf('-filter_complex') + 1] : '';
     expect(fc).not.toContain('tblend');
+  });
+
+  it('time-gates motion blur when camera moves are present', async () => {
+    setupHappy();
+    await exportVideo({
+      demoName: 'demo',
+      argoDir: '.argo',
+      outputDir: 'out',
+      motionBlur: { intensity: 0.4 },
+      cameraMoves: [
+        {
+          startMs: 2000,
+          durationMs: 400,
+          x: 960,
+          y: 540,
+          w: 400,
+          h: 300,
+          scale: 1.5,
+          holdMs: 1000,
+        },
+      ],
+      outputWidth: 1920,
+      outputHeight: 1080,
+    });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+    const fc = a[a.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('tblend=all_mode=average:all_opacity=0.40');
+    expect(fc).toContain("enable='between(t,1.9600,2.4400)+between(t,3.3600,3.8400)'");
   });
 });

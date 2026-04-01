@@ -335,7 +335,7 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
     const motionBlur = options.motionBlur;
     if (motionBlur) {
       const intensity = typeof motionBlur === 'object' ? motionBlur.intensity : 0.5;
-      const mblurFilter = buildMotionBlurFilter(`[${videoSource}]`, intensity);
+      const mblurFilter = buildMotionBlurFilter(`[${videoSource}]`, intensity, cameraMoves, sourceFps);
       if (mblurFilter) {
         filterParts.push(mblurFilter.filter);
         videoSource = mblurFilter.outputLabel;
