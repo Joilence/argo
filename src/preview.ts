@@ -3418,6 +3418,7 @@ function wireCameraMoveListeners() {
       else if (field === 'holdMs') move.holdMs = val;
       markDirty();
       renderTimelineMarkers();
+      applyCameraTransform(video.currentTime * 1000);
     });
   });
 }
@@ -3442,6 +3443,7 @@ function addCameraMove(sceneName) {
   DATA.cameraMoves.sort((a, b) => a.startMs - b.startMs);
   refreshCameraMovesUI(sceneName);
   markDirty();
+  applyCameraTransform(video.currentTime * 1000);
 }
 
 function removeCameraMove(globalIdx) {
@@ -3451,6 +3453,7 @@ function removeCameraMove(globalIdx) {
   DATA.cameraMoves.splice(globalIdx, 1);
   if (sceneName) refreshCameraMovesUI(sceneName);
   markDirty();
+  applyCameraTransform(video.currentTime * 1000);
 }
 
 let targetModeIdx = -1;
