@@ -32,15 +32,56 @@ function formatSeconds(value: number): string {
   return value.toFixed(4);
 }
 
+/** Max gap (ms) between two moves to chain them with a smooth pan instead of bouncing to 1×. */
+const CHAIN_GAP_MS = 1500;
+/** Duration (ms) of the smooth pan transition between chained moves. */
+const CHAIN_PAN_MS = 1000;
+
 /**
- * Build an ffmpeg filter expression for a single camera move.
+ * Cubic bezier approximation for easing: cubicBezier(0.1, 0.0, 0.2, 1.0, t).
+ * This is an aggressive ease-out (fast deceleration) used for connected pans.
+ * Approximated as a polynomial: roughly t^0.5 with slight adjustment.
+ * In ffmpeg expressions: 1-pow(1-t,3) gives a good ease-out approximation.
+ */
+function easeOutExpr(tExpr: string): string {
+  return `(1-pow(1-(${tExpr})\\,3))`;
+}
+
+/**
+ * Compute the end time (in ms) of a camera move including zoom-out.
+ */
+function moveEndMs(move: CameraMove): number {
+  const fadeMs = move.durationMs;
+  const holdMs = move.holdMs ?? 0;
+  return move.startMs + fadeMs + holdMs + fadeMs; // in + hold + out
+}
+
+/**
+ * Detect which adjacent move pairs should be chained (smooth pan instead of bounce).
+ * Returns a Set of indices where move[i] should chain into move[i+1].
+ */
+export function detectChainedPairs(moves: CameraMove[]): Set<number> {
+  const chained = new Set<number>();
+  for (let i = 0; i < moves.length - 1; i++) {
+    const scaleA = moves[i].scale ?? 1.5;
+    const scaleB = moves[i + 1].scale ?? 1.5;
+    if (scaleA <= 1.0 || scaleB <= 1.0) continue;
+    const gap = moves[i + 1].startMs - moveEndMs(moves[i]);
+    if (gap <= CHAIN_GAP_MS) {
+      chained.add(i);
+    }
+  }
+  return chained;
+}
+
+/**
+ * Build an ffmpeg filter expression for camera moves with connected handoffs.
  *
- * The approach: animate zoom and crop-center with ffmpeg's zoompan filter.
- * Unlike crop, zoompan supports per-frame zoom changes directly.
+ * Adjacent moves within CHAIN_GAP_MS get smooth pans between them instead of
+ * bouncing back to 1× zoom. The pan interpolates focus + scale with an ease-out
+ * curve, creating cinematic connected camera motion.
  *
  * Uses ffmpeg's `if(between(t,...),expr,default)` for time-based animation.
- * Linear interpolation for v1 — cubic easing can be added later via
- * precomputed keyframes.
  */
 export function buildCameraMoveFilter(
   moves: CameraMove[],
@@ -50,74 +91,115 @@ export function buildCameraMoveFilter(
   fps = 30,
 ): { filter: string; outputLabel: string } | null {
   if (moves.length === 0) return null;
-
-  // Validate dimensions
   if (inputWidth <= 0 || inputHeight <= 0) return null;
 
-  const parts: string[] = [];
-  let currentLabel = inputLabel;
+  // Filter to valid moves and sort by start time
+  const validMoves = moves
+    .map((m, i) => ({ move: m, origIdx: i }))
+    .filter(({ move }) => (move.scale ?? 1.5) > 1.0);
+  if (validMoves.length === 0) return null;
 
-  for (let i = 0; i < moves.length; i++) {
-    const move = moves[i];
+  const sortedMoves = validMoves.map(v => v.move);
+  const chained = detectChainedPairs(sortedMoves);
+  const f = (n: number) => n.toFixed(4);
+
+  // Build unified zoom, panX, panY expressions as nested if/else chains.
+  // Each move contributes its time windows; chained pairs add a pan transition.
+  const zoomClauses: string[] = [];
+  const panXClauses: string[] = [];
+  const panYClauses: string[] = [];
+
+  for (let i = 0; i < sortedMoves.length; i++) {
+    const move = sortedMoves[i];
     const scale = move.scale ?? 1.5;
-    if (scale <= 1.0) continue; // No zoom needed
-
     const holdMs = move.holdMs ?? 0;
     const fadeInSec = move.durationMs / 1000;
     const holdSec = holdMs / 1000;
-    const fadeOutSec = fadeInSec; // Symmetric zoom out
+    const fadeOutSec = fadeInSec;
 
     const startSec = move.startMs / 1000;
     const zoomInEnd = startSec + fadeInSec;
     const holdEnd = zoomInEnd + holdSec;
     const zoomOutEnd = holdEnd + fadeOutSec;
 
-    // Build the animated zoom expression.
-    // progress goes 0→1 during zoom-in, stays 1 during hold, goes 1→0 during zoom-out.
-    const f = (n: number) => n.toFixed(4);
+    const isChainedOut = chained.has(i);       // this move chains into the next
+    const isChainedIn = i > 0 && chained.has(i - 1); // previous move chains into this
 
-    // Progress expressions for each phase
-    const zoomInProgress = `(in_time-${f(startSec)})/${f(fadeInSec)}`;
-    const zoomOutProgress = `1-(in_time-${f(holdEnd)})/${f(fadeOutSec)}`;
+    // --- Zoom-in phase (skip if chained-in — the pan transition handles it) ---
+    if (!isChainedIn) {
+      const progress = `(in_time-${f(startSec)})/${f(fadeInSec)}`;
+      zoomClauses.push(`if(between(in_time\\,${f(startSec)}\\,${f(zoomInEnd)})\\,1+${progress}*${f(scale - 1)}`);
+      panXClauses.push(`if(between(in_time\\,${f(startSec)}\\,${f(zoomInEnd)})\\,${f(move.x)}`);
+      panYClauses.push(`if(between(in_time\\,${f(startSec)}\\,${f(zoomInEnd)})\\,${f(move.y)}`);
+    }
 
-    // Combined progress: 0 before start, ramp 0→1 during zoom-in, 1 during hold, ramp 1→0 during zoom-out, 0 after
-    const progress = [
-      `if(between(in_time\\,${f(startSec)}\\,${f(zoomInEnd)})\\,${zoomInProgress}`,
-      `\\,if(between(in_time\\,${f(zoomInEnd)}\\,${f(holdEnd)})\\,1`,
-      `\\,if(between(in_time\\,${f(holdEnd)}\\,${f(zoomOutEnd)})\\,${zoomOutProgress}`,
-      `\\,0)))`,
-    ].join('');
+    // --- Hold phase ---
+    if (holdSec > 0) {
+      zoomClauses.push(`if(between(in_time\\,${f(zoomInEnd)}\\,${f(holdEnd)})\\,${f(scale)}`);
+      panXClauses.push(`if(between(in_time\\,${f(zoomInEnd)}\\,${f(holdEnd)})\\,${f(move.x)}`);
+      panYClauses.push(`if(between(in_time\\,${f(zoomInEnd)}\\,${f(holdEnd)})\\,${f(move.y)}`);
+    }
 
-    // Animated zoom factor: 1.0 -> scale -> 1.0
-    const zoom = `1+${progress}*${f(scale - 1)}`;
+    // --- Zoom-out or connected pan transition ---
+    if (isChainedOut) {
+      const next = sortedMoves[i + 1];
+      const nextScale = next.scale ?? 1.5;
+      // Pan transition: from current hold end to next zoom-in end
+      const panDur = Math.min(CHAIN_PAN_MS / 1000, (next.startMs - move.startMs - move.durationMs - holdMs) / 1000 + next.durationMs / 1000);
+      const panStart = holdEnd;
+      const panEnd = panStart + panDur;
 
-    // Center the zoom window on the target element.
-    // zoompan crops a source window of size iw/zoom x ih/zoom.
-    const centerX = f(move.x);
-    const centerY = f(move.y);
-    const panX = `max(0\\,min(${centerX}-iw/(${zoom})/2\\,iw-iw/(${zoom})))`;
-    const panY = `max(0\\,min(${centerY}-ih/(${zoom})/2\\,ih-ih/(${zoom})))`;
+      // During pan: interpolate scale and focus between current and next
+      const tExpr = `(in_time-${f(panStart)})/${f(panDur)}`;
+      const easedT = easeOutExpr(tExpr);
 
-    const outLabel = `cam${i}`;
-    parts.push(
-      `${currentLabel}zoompan=z='${zoom}':x='${panX}':y='${panY}':d=1:s=${inputWidth}x${inputHeight}:fps=${Math.max(1, Math.round(fps))}[${outLabel}]`,
-    );
-    currentLabel = `[${outLabel}]`;
+      // Lerp scale: current scale → next scale
+      const lerpScale = `${f(scale)}+(${f(nextScale)}-${f(scale)})*${easedT}`;
+      // Lerp focus
+      const lerpX = `${f(move.x)}+(${f(next.x)}-${f(move.x)})*${easedT}`;
+      const lerpY = `${f(move.y)}+(${f(next.y)}-${f(move.y)})*${easedT}`;
+
+      zoomClauses.push(`if(between(in_time\\,${f(panStart)}\\,${f(panEnd)})\\,${lerpScale}`);
+      panXClauses.push(`if(between(in_time\\,${f(panStart)}\\,${f(panEnd)})\\,${lerpX}`);
+      panYClauses.push(`if(between(in_time\\,${f(panStart)}\\,${f(panEnd)})\\,${lerpY}`);
+
+      // If there's a gap between pan end and next move's zoom-in, hold at next position
+      const nextStart = next.startMs / 1000;
+      const nextFadeIn = next.durationMs / 1000;
+      const nextZoomInEnd = nextStart + nextFadeIn;
+      if (panEnd < nextZoomInEnd) {
+        zoomClauses.push(`if(between(in_time\\,${f(panEnd)}\\,${f(nextZoomInEnd)})\\,${f(nextScale)}`);
+        panXClauses.push(`if(between(in_time\\,${f(panEnd)}\\,${f(nextZoomInEnd)})\\,${f(next.x)}`);
+        panYClauses.push(`if(between(in_time\\,${f(panEnd)}\\,${f(nextZoomInEnd)})\\,${f(next.y)}`);
+      }
+    } else {
+      // Normal zoom-out
+      const progress = `1-(in_time-${f(holdEnd)})/${f(fadeOutSec)}`;
+      zoomClauses.push(`if(between(in_time\\,${f(holdEnd)}\\,${f(zoomOutEnd)})\\,1+${progress}*${f(scale - 1)}`);
+      panXClauses.push(`if(between(in_time\\,${f(holdEnd)}\\,${f(zoomOutEnd)})\\,${f(move.x)}`);
+      panYClauses.push(`if(between(in_time\\,${f(holdEnd)}\\,${f(zoomOutEnd)})\\,${f(move.y)}`);
+    }
   }
 
-  if (parts.length === 0) return null;
+  // Close all clauses with default (no zoom = 1.0, center pan)
+  const defaultZoom = '1';
+  const defaultX = f(inputWidth / 2);
+  const defaultY = f(inputHeight / 2);
+  const closingParens = ')'.repeat(zoomClauses.length);
 
-  const finalLabel = `camfinal`;
-  // Rename the last output label — find the actual label used in the last part,
-  // not moves.length-1 (which may refer to a skipped move with scale <= 1)
-  const lastPart = parts[parts.length - 1];
-  const lastLabelMatch = lastPart.match(/\[cam(\d+)\]$/);
-  if (lastLabelMatch) {
-    parts[parts.length - 1] = lastPart.replace(`[cam${lastLabelMatch[1]}]`, `[${finalLabel}]`);
-  }
+  const zoomExpr = zoomClauses.join('\\,') + `\\,${defaultZoom}${closingParens}`;
+  const focusX = panXClauses.join('\\,') + `\\,${defaultX}${closingParens}`;
+  const focusY = panYClauses.join('\\,') + `\\,${defaultY}${closingParens}`;
+
+  // Build pan expressions from focus point + zoom
+  const panX = `max(0\\,min(${focusX}-iw/(${zoomExpr})/2\\,iw-iw/(${zoomExpr})))`;
+  const panY = `max(0\\,min(${focusY}-ih/(${zoomExpr})/2\\,ih-ih/(${zoomExpr})))`;
+
+  const finalLabel = 'camfinal';
+  const filter = `${inputLabel}zoompan=z='${zoomExpr}':x='${panX}':y='${panY}':d=1:s=${inputWidth}x${inputHeight}:fps=${Math.max(1, Math.round(fps))}[${finalLabel}]`;
 
   return {
-    filter: parts.join(';\n'),
+    filter,
     outputLabel: finalLabel,
   };
 }

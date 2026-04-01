@@ -115,7 +115,7 @@ export {
 } from './freeze.js';
 
 // Camera Moves
-export { buildCameraMoveFilter, buildMotionBlurFilter, shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
+export { buildCameraMoveFilter, buildMotionBlurFilter, detectChainedPairs, shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
 
 // Frame
 export { buildFrameFilter, type FrameFilterResult } from './frame.js';

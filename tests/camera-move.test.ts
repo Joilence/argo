@@ -42,7 +42,7 @@ describe('buildCameraMoveFilter', () => {
     expect(result!.outputLabel).toBe('camfinal');
   });
 
-  it('chains multiple moves with sequential labels', () => {
+  it('builds unified expression for multiple moves', () => {
     const move2: CameraMove = {
       startMs: 5000,
       durationMs: 300,
@@ -55,9 +55,52 @@ describe('buildCameraMoveFilter', () => {
     };
     const result = buildCameraMoveFilter([baseMove, move2], 1920, 1080, '[0:v]');
     expect(result).not.toBeNull();
-    // First move feeds into second
-    expect(result!.filter).toContain('[cam0]');
+    // Single unified zoompan filter (not chained per-move)
     expect(result!.filter).toContain('[camfinal]');
+    // Both moves' focus points appear in the expression
+    expect(result!.filter).toContain('960.0000'); // move1 x
+    expect(result!.filter).toContain('200.0000'); // move2 x
+  });
+
+  it('connects adjacent moves with smooth pan instead of bounce', () => {
+    // Two moves close together (gap < 1500ms) → connected handoff
+    const move1: CameraMove = {
+      startMs: 2000, durationMs: 400,
+      x: 960, y: 540, w: 400, h: 300,
+      scale: 1.5, holdMs: 500,
+    };
+    const move2: CameraMove = {
+      startMs: 4000, durationMs: 300,
+      x: 200, y: 100, w: 600, h: 400,
+      scale: 1.3, holdMs: 500,
+    };
+    // Gap: 4000 - (2000 + 400 + 500 + 400) = 700ms < 1500ms → chained
+    const result = buildCameraMoveFilter([move1, move2], 1920, 1080, '[0:v]');
+    expect(result).not.toBeNull();
+    // Should contain ease-out pan expression (pow for cubic bezier approx)
+    expect(result!.filter).toContain('pow(1-');
+    // Should contain lerp between scales
+    expect(result!.filter).toContain('1.5000+(1.3000-1.5000)');
+  });
+
+  it('does not connect moves with large gap', () => {
+    const move1: CameraMove = {
+      startMs: 1000, durationMs: 300,
+      x: 500, y: 300, w: 200, h: 200,
+      scale: 1.5, holdMs: 200,
+    };
+    const move2: CameraMove = {
+      startMs: 10000, durationMs: 300,
+      x: 800, y: 600, w: 200, h: 200,
+      scale: 1.3, holdMs: 200,
+    };
+    // Gap: 10000 - (1000 + 300 + 200 + 300) = 8200ms >> 1500ms → not chained
+    const result = buildCameraMoveFilter([move1, move2], 1920, 1080, '[0:v]');
+    expect(result).not.toBeNull();
+    // Should NOT contain lerp between scales (no connected pan)
+    expect(result!.filter).not.toContain('1.5000+(1.3000-1.5000)');
+    // Each move zooms out independently
+    expect(result!.filter).toContain('1+1-(in_time');
   });
 
   it('uses default scale of 1.5 when not specified', () => {

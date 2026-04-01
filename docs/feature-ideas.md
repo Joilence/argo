@@ -173,7 +173,15 @@ This is a lightweight roadmap note for future Argo work. It is intentionally pra
 - **Audio ducking (sidechain)**. True sidechain compression — BGM volume dips when narration is active, rises in gaps. Uses ffmpeg `sidechaincompress`. More sophisticated than current constant-volume mixing.
 - **Segment-level export**. Export individual scenes as standalone clips with their own intro cards + transitions. For embedding specific features in docs pages. `argo export demo --scene intro --scene features`.
 - **Animated thumbnails**. Auto-generate a 3-second looping video thumbnail (like YouTube hover previews) from the most visually active scenes. Uses scene change detection + trim + loop.
-- **Contrast-adaptive sharpening**. Apply ffmpeg `cas` filter to restore text crispness lost during screen recording encode. Screen recordings are mostly sharp UI text — `cas` is designed for exactly this. Config: `export.sharpen: true` (or `export.sharpen: { strength: 0.5 }`). Single filter append, low complexity.
+- ~~**Contrast-adaptive sharpening**.~~ **SHIPPED** — `export.sharpen: true` applies ffmpeg CAS filter.
+
+### Camera Intelligence (inspired by [OpenScreen](https://github.com/siddharthvaddem/openscreen))
+
+- **Connected zoom handoffs** (priority 1). Instead of zoom-in → hold → zoom-out → zoom-in again for nearby `zoomTo()` calls, smoothly pan between adjacent camera moves. In `buildCameraMoveFilter()`, detect adjacent moves within ~1.5s, suppress the bounce back to 1×, and interpolate focus + scale directly between moves with eased cubic bezier. Reference: OpenScreen's `zoomRegionUtils.ts` — connected pair detection, lerp with `cubicBezier(0.1, 0, 0.2, 1)`, three-phase priority (transition → hold → normal).
+- **Cursor-dwell → camera suggestions** (priority 2). Record cursor telemetry during Playwright runs, detect dwell clusters, suggest camera beats in preview. Not every dwell becomes a zoom — surface as suggestions the author can accept/reject. Thresholds: movement `0.02` (2% viewport), min dwell `450ms`, max dwell `2600ms`, focus = centroid of dwell samples. Reference: OpenScreen's `zoomSuggestionUtils.ts`.
+- **Velocity-aware motion blur** (priority 3). Make blur strength depend on actual camera velocity instead of a fixed intensity. Deadzone ~12 px/s, quadratic response curve (`(speed/peak)² × maxBlur`), include scale velocity so zooms contribute not just pans. Long-term target: velocity-shaped blur strength over time, not just one opacity per segment. Reference: OpenScreen's `zoomTransform.ts`.
+- **Zoom depth presets**. Named zoom levels: `{ 1: 1.25, 2: 1.5, 3: 1.8, 4: 2.2, 5: 3.5, 6: 5.0 }`. Useful if preview gets a manual camera editor.
+- **Crop UI for imported videos**. Normalized 0..1 region, pointer handles, resolution-independent math, 10% minimum dimension. Reference: OpenScreen's `CropControl.tsx`.
 
 ### Platform / Distribution
 
