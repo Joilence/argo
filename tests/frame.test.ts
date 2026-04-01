@@ -22,17 +22,19 @@ describe('buildFrameFilter', () => {
     const fc = result!.filterParts.join(';\n');
     // Should scale inner video
     expect(fc).toContain('scale=1840:1000:flags=lanczos');
+    expect(fc).toContain('force_original_aspect_ratio=decrease:force_divisible_by=2');
     // Should apply rounded corners
     expect(fc).toContain('format=yuva444p');
     expect(fc).toContain('geq=');
     expect(fc).toContain("if(lte(min(");
+    expect(fc).not.toContain('pad=1840:1000');
     // Should create solid black background
     expect(fc).toContain('color=c=#000000:s=1920x1080:d=1,loop=-1:1:0');
     // Should have shadow (default 0.5)
     expect(fc).toContain('boxblur=');
     expect(fc).toContain('split[frm_fg][frm_shadow_src]');
     // Should have final overlay
-    expect(fc).toContain('overlay=40:40:format=auto:shortest=1[frm_out]');
+    expect(fc).toContain('overlay=(W-w)/2:(H-h)/2:format=auto:shortest=1[frm_out]');
   });
 
   it('keeps straight edges fully opaque in the rounded-corner mask', () => {
@@ -53,7 +55,7 @@ describe('buildFrameFilter', () => {
     // Should NOT have shadow split
     expect(fc).not.toContain('frm_shadow');
     // Should directly overlay on background
-    expect(fc).toContain('[frm_bg][frm_rounded]overlay=40:40:format=auto:shortest=1[frm_out]');
+    expect(fc).toContain('[frm_bg][frm_rounded]overlay=(W-w)/2:(H-h)/2:format=auto:shortest=1[frm_out]');
   });
 
   it('disables rounded corners when borderRadius is 0', () => {
@@ -72,7 +74,8 @@ describe('buildFrameFilter', () => {
     const fc = result!.filterParts.join(';\n');
     // Inner dimensions: 1920 - 160 = 1760, 1080 - 160 = 920
     expect(fc).toContain('scale=1760:920:flags=lanczos');
-    expect(fc).toContain('overlay=80:80:format=auto:shortest=1[frm_out]');
+    expect(fc).toContain('overlay=(W-w)/2:(H-h)/2:format=auto:shortest=1[frm_out]');
+    expect(fc).not.toContain('pad=1760:920');
   });
 
   it('uses solid color background', () => {
