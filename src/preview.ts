@@ -2077,6 +2077,9 @@ const PREVIEW_HTML = `<!DOCTYPE html>
   .suggestion-tooltip .btn-accept { background: #22c55e; color: #fff; border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
   .suggestion-tooltip .btn-dismiss { background: #6b7280; color: #fff; border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
   .video-container.target-mode { cursor: crosshair; }
+  .camera-region-overlay { position: absolute; border: 2px solid rgba(245,158,11,0.8); background: rgba(245,158,11,0.08); pointer-events: none; z-index: 5; border-radius: 4px; transition: all 0.15s ease-out; }
+  .camera-region-overlay.target-preview { border-color: rgba(239,68,68,0.8); background: rgba(239,68,68,0.1); }
+  .camera-region-label { position: absolute; top: -18px; left: 0; font-size: 10px; color: rgba(245,158,11,0.9); white-space: nowrap; }
   .effects-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
   .effects-section .section-title {
     font-size: 11px;
@@ -2163,6 +2166,7 @@ const PREVIEW_HTML = `<!DOCTYPE html>
   <div class="video-container">
     <video id="video" src="/video" preload="auto" muted playsinline></video>
     <div class="overlay-layer" id="overlay-layer"></div>
+    <div class="camera-region-overlay" id="camera-region" style="display:none"><span class="camera-region-label"></span></div>
     <div class="snap-zone" data-zone="top-left" style="top:10%;left:5%;width:35%;height:35%"><span class="snap-zone-label">top-left</span></div>
     <div class="snap-zone" data-zone="top-right" style="top:10%;right:5%;width:35%;height:35%"><span class="snap-zone-label">top-right</span></div>
     <div class="snap-zone" data-zone="bottom-left" style="bottom:10%;left:5%;width:35%;height:35%"><span class="snap-zone-label">bottom-left</span></div>
@@ -3452,6 +3456,21 @@ function enterTargetMode(globalIdx) {
   if (activeBtn) activeBtn.classList.add('active');
 }
 
+// Live hover preview in target mode
+document.querySelector('.video-container')?.addEventListener('mousemove', (e) => {
+  if (targetModeIdx < 0) return;
+  const move = DATA.cameraMoves?.[targetModeIdx];
+  if (!move) return;
+  const rect = video.getBoundingClientRect();
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
+  const hoverX = Math.round(((e.clientX - rect.left) / rect.width) * vw);
+  const hoverY = Math.round(((e.clientY - rect.top) / rect.height) * vh);
+  const regionEl = document.getElementById('camera-region');
+  if (regionEl) regionEl.classList.add('target-preview');
+  updateCameraRegionOverlay({ scale: move.scale ?? 1.5, x: hoverX, y: hoverY });
+});
+
 // Click-to-target handler on video
 document.querySelector('.video-container')?.addEventListener('click', (e) => {
   if (targetModeIdx < 0) return;
@@ -3467,6 +3486,14 @@ document.querySelector('.video-container')?.addEventListener('click', (e) => {
   move.y = Math.round((clickY / rect.height) * vh);
   move.w = Math.round(vw / (move.scale ?? 1.5));
   move.h = Math.round(vh / (move.scale ?? 1.5));
+
+  // Show the zoom region preview briefly
+  const regionEl = document.getElementById('camera-region');
+  if (regionEl) regionEl.classList.add('target-preview');
+  updateCameraRegionOverlay({ scale: move.scale ?? 1.5, x: move.x, y: move.y });
+  setTimeout(() => {
+    if (regionEl) { regionEl.classList.remove('target-preview'); regionEl.style.display = 'none'; }
+  }, 2000);
 
   document.querySelector('.video-container')?.classList.remove('target-mode');
   document.querySelectorAll('.btn-target').forEach(b => b.classList.remove('active'));
@@ -3685,15 +3712,51 @@ function computeCameraTransform(currentMs) {
 
 let cameraPreviewEnabled = true;
 
+function updateCameraRegionOverlay(cam) {
+  const regionEl = document.getElementById('camera-region');
+  if (!regionEl) return;
+  if (!cam || cam.scale <= 1.01) {
+    regionEl.style.display = 'none';
+    return;
+  }
+  const rect = video.getBoundingClientRect();
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
+  const scaleX = rect.width / vw;
+  const scaleY = rect.height / vh;
+
+  // Region size: what portion of the frame is visible at this zoom
+  const regionW = vw / cam.scale;
+  const regionH = vh / cam.scale;
+  // Region position: centered on focus point, clamped to frame
+  const regionX = Math.max(0, Math.min(cam.x - regionW / 2, vw - regionW));
+  const regionY = Math.max(0, Math.min(cam.y - regionH / 2, vh - regionH));
+
+  // Convert to CSS pixels relative to video element
+  const videoOffset = video.offsetLeft || 0;
+  const videoTop = video.offsetTop || 0;
+  regionEl.style.display = 'block';
+  regionEl.style.left = (videoOffset + regionX * scaleX) + 'px';
+  regionEl.style.top = (videoTop + regionY * scaleY) + 'px';
+  regionEl.style.width = (regionW * scaleX) + 'px';
+  regionEl.style.height = (regionH * scaleY) + 'px';
+
+  const label = regionEl.querySelector('.camera-region-label');
+  if (label) label.textContent = cam.scale.toFixed(1) + 'x zoom';
+}
+
 function applyCameraTransform(currentMs) {
+  const regionEl = document.getElementById('camera-region');
   if (!cameraPreviewEnabled) {
     video.style.transform = '';
+    if (regionEl) regionEl.style.display = 'none';
     return;
   }
   const cam = computeCameraTransform(currentMs);
   if (!cam || cam.scale <= 1.01) {
     video.style.transform = '';
     video.style.transformOrigin = '';
+    if (regionEl) regionEl.style.display = 'none';
     return;
   }
   const vw = video.videoWidth || 1920;
@@ -3702,6 +3765,7 @@ function applyCameraTransform(currentMs) {
   const originY = (cam.y / vh) * 100;
   video.style.transformOrigin = originX + '% ' + originY + '%';
   video.style.transform = 'scale(' + cam.scale.toFixed(3) + ')';
+  updateCameraRegionOverlay(cam);
 }
 
 async function saveTiming() {
