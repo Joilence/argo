@@ -13,10 +13,12 @@ import { test, demoType } from '@argo-video/cli';
 import { showOverlay, withOverlay, showConfetti } from '@argo-video/cli';
 import { spotlight, focusRing, dimAround, zoomTo, resetCamera } from '@argo-video/cli';
 import { cursorHighlight, resetCursor } from '@argo-video/cli';
+import { trackCursor } from '@argo-video/cli';
 
 test('showcase', async ({ page, narration }) => {
   test.setTimeout(300_000);
   await page.goto('/showcase.html');
+  trackCursor(page, narration);
   cursorHighlight(page, { color: '#60a5fa', radius: 18 });
   await page.waitForTimeout(700);
 
