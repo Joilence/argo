@@ -3396,6 +3396,10 @@ function refreshCameraMovesUI(sceneName) {
       <button class="btn btn-sm btn-danger" onclick="removeCameraMove(\${globalIdx})" title="Remove">&times;</button>
     </div>\`;
   }).join('');
+  // Update count in header
+  const section = container.closest('.camera-moves-section');
+  const header = section?.querySelector('.section-title span');
+  if (header) header.textContent = 'Camera Moves (' + moves.length + ')';
   wireCameraMoveListeners();
   renderTimelineMarkers();
 }
@@ -3553,6 +3557,21 @@ videoContainer?.addEventListener('mouseup', (e) => {
   dragStart = null;
   markDirty();
   renderTimelineMarkers();
+});
+
+// Cancel drag if mouse released outside video container
+document.addEventListener('mouseup', () => {
+  if (isDraggingRegion) {
+    isDraggingRegion = false;
+    dragStart = null;
+    if (targetModeIdx >= 0) {
+      document.querySelector('.video-container')?.classList.remove('target-mode');
+      document.querySelectorAll('.btn-target').forEach(b => b.classList.remove('active'));
+      const regionEl = document.getElementById('camera-region');
+      if (regionEl) { regionEl.classList.remove('target-preview'); regionEl.style.display = 'none'; }
+      targetModeIdx = -1;
+    }
+  }
 });
 
 async function saveCameraMoves() {
@@ -4217,6 +4236,7 @@ function snapshotAllScenes() {
       playbackSpeed: s.playbackSpeed ?? '',
       overlay: s.overlay ? JSON.parse(JSON.stringify(s.overlay)) : null,
       effects: s.effects?.length ? JSON.parse(JSON.stringify(s.effects)) : [],
+      cameraMoves: JSON.parse(JSON.stringify(getMovesForScene(s.name))),
     });
   }
 }
@@ -4244,6 +4264,10 @@ function isSceneModified(sceneName) {
   const currentEffects = JSON.stringify(s?.effects ?? []);
   const snapEffects = JSON.stringify(snap.effects ?? []);
   if (currentEffects !== snapEffects) return true;
+  // Check camera moves
+  const currentMoves = JSON.stringify(getMovesForScene(sceneName));
+  const snapMoves = JSON.stringify(snap.cameraMoves ?? []);
+  if (currentMoves !== snapMoves) return true;
   return false;
 }
 
@@ -4278,6 +4302,21 @@ function undoScene(sceneName) {
   if (s) {
     s.effects = snap.effects?.length ? JSON.parse(JSON.stringify(snap.effects)) : [];
     refreshEffectsUI(sceneName);
+  }
+  // Restore camera moves
+  if (s && snap.cameraMoves) {
+    // Remove current moves for this scene and replace with snapshot
+    const currentMoves = getMovesForScene(sceneName);
+    for (const m of currentMoves) {
+      const idx = (DATA.cameraMoves ?? []).indexOf(m);
+      if (idx >= 0) DATA.cameraMoves.splice(idx, 1);
+    }
+    const restored = JSON.parse(JSON.stringify(snap.cameraMoves));
+    if (!DATA.cameraMoves) DATA.cameraMoves = [];
+    DATA.cameraMoves.push(...restored);
+    DATA.cameraMoves.sort((a, b) => a.startMs - b.startMs);
+    refreshCameraMovesUI(sceneName);
+    renderTimelineMarkers();
   }
   // Restore overlay from snapshot into s.overlay (single source of truth)
   if (s) {
