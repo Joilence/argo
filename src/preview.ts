@@ -96,6 +96,8 @@ interface PreviewData {
   cameraMoves: Array<import('./camera-move.js').CameraMove>;
   /** Cursor telemetry for dwell-based camera suggestions. */
   cursorTelemetry: Array<{ cx: number; cy: number; timeMs: number }>;
+  /** Head trim offset for un-shifting camera moves on save. */
+  headTrimMs: number;
   /** Preview-only background music state. */
   bgm: {
     hasGenerated: boolean;
@@ -407,9 +409,12 @@ function loadPreviewData(
     try { videoDurationMs = getVideoDurationMs(exportedMp4); } catch { /* ignore */ }
   }
 
-  // Load cursor telemetry for dwell-based camera suggestions
+  // Load cursor telemetry for dwell-based camera suggestions, shift for head trim
   const cursorTelemetryPath = join(demoDir, '.timing.cursor-telemetry.json');
-  const cursorTelemetry = readJsonFile<Array<{ cx: number; cy: number; timeMs: number }>>(cursorTelemetryPath, []);
+  const rawCursorTelemetry = readJsonFile<Array<{ cx: number; cy: number; timeMs: number }>>(cursorTelemetryPath, []);
+  const cursorTelemetry = headTrimMs > 0
+    ? rawCursorTelemetry.map(s => ({ ...s, timeMs: s.timeMs - headTrimMs })).filter(s => s.timeMs >= 0)
+    : rawCursorTelemetry;
 
   // Load camera moves from sidecar file, shift for head trim
   const cameraMovesPath = join(demoDir, '.timing.camera-moves.json');
@@ -433,6 +438,7 @@ function loadPreviewData(
     bgm,
     cameraMoves,
     cursorTelemetry,
+    headTrimMs,
   };
 }
 
@@ -2450,8 +2456,8 @@ video.addEventListener('timeupdate', () => {
     activeScene = current;
     updateActiveSceneUI();
     updateOverlayVisibility(currentMs);
-    applyCameraTransform(currentMs);
   }
+  applyCameraTransform(currentMs);
 });
 
 // Click and drag on timeline bar to scrub
@@ -3354,9 +3360,6 @@ function getMovesForScene(sceneName) {
 
 function renderCameraMovesFields(s) {
   const moves = getMovesForScene(s.name);
-  if (moves.length === 0 && !(DATA.cameraMoves?.length)) {
-    return ''; // No camera moves at all — hide section
-  }
   const items = moves.map((m, i) => {
     const globalIdx = (DATA.cameraMoves ?? []).indexOf(m);
     return \`<div class="camera-move-entry">
@@ -3456,57 +3459,113 @@ function enterTargetMode(globalIdx) {
   if (activeBtn) activeBtn.classList.add('active');
 }
 
-// Live hover preview in target mode
-document.querySelector('.video-container')?.addEventListener('mousemove', (e) => {
+// Drag-to-select zoom region (macOS ⌘⇧4 style)
+let dragStart = null; // { x, y } in video pixels
+let isDraggingRegion = false;
+
+const videoContainer = document.querySelector('.video-container');
+
+videoContainer?.addEventListener('mousedown', (e) => {
   if (targetModeIdx < 0) return;
-  const move = DATA.cameraMoves?.[targetModeIdx];
-  if (!move) return;
+  e.preventDefault();
   const rect = video.getBoundingClientRect();
   const vw = video.videoWidth || 1920;
   const vh = video.videoHeight || 1080;
-  const hoverX = Math.round(((e.clientX - rect.left) / rect.width) * vw);
-  const hoverY = Math.round(((e.clientY - rect.top) / rect.height) * vh);
+  dragStart = {
+    x: Math.round(((e.clientX - rect.left) / rect.width) * vw),
+    y: Math.round(((e.clientY - rect.top) / rect.height) * vh),
+  };
+  isDraggingRegion = true;
   const regionEl = document.getElementById('camera-region');
-  if (regionEl) regionEl.classList.add('target-preview');
-  updateCameraRegionOverlay({ scale: move.scale ?? 1.5, x: hoverX, y: hoverY });
+  if (regionEl) { regionEl.classList.add('target-preview'); regionEl.style.display = 'block'; }
 });
 
-// Click-to-target handler on video
-document.querySelector('.video-container')?.addEventListener('click', (e) => {
-  if (targetModeIdx < 0) return;
-  const move = DATA.cameraMoves?.[targetModeIdx];
-  if (!move) return;
-
+videoContainer?.addEventListener('mousemove', (e) => {
+  if (!isDraggingRegion || targetModeIdx < 0 || !dragStart) return;
   const rect = video.getBoundingClientRect();
-  const clickX = e.clientX - rect.left;
-  const clickY = e.clientY - rect.top;
   const vw = video.videoWidth || 1920;
   const vh = video.videoHeight || 1080;
-  move.x = Math.round((clickX / rect.width) * vw);
-  move.y = Math.round((clickY / rect.height) * vh);
-  move.w = Math.round(vw / (move.scale ?? 1.5));
-  move.h = Math.round(vh / (move.scale ?? 1.5));
+  const curX = Math.round(((e.clientX - rect.left) / rect.width) * vw);
+  const curY = Math.round(((e.clientY - rect.top) / rect.height) * vh);
 
-  // Show the zoom region preview briefly
+  // Draw the selection rectangle
+  const x1 = Math.max(0, Math.min(dragStart.x, curX));
+  const y1 = Math.max(0, Math.min(dragStart.y, curY));
+  const x2 = Math.min(vw, Math.max(dragStart.x, curX));
+  const y2 = Math.min(vh, Math.max(dragStart.y, curY));
+  const w = Math.max(20, x2 - x1);
+  const h = Math.max(20, y2 - y1);
+
+  const scaleX = rect.width / vw;
+  const scaleY = rect.height / vh;
   const regionEl = document.getElementById('camera-region');
-  if (regionEl) regionEl.classList.add('target-preview');
-  updateCameraRegionOverlay({ scale: move.scale ?? 1.5, x: move.x, y: move.y });
-  setTimeout(() => {
-    if (regionEl) { regionEl.classList.remove('target-preview'); regionEl.style.display = 'none'; }
-  }, 2000);
+  if (regionEl) {
+    const videoOffset = video.offsetLeft || 0;
+    const videoTop = video.offsetTop || 0;
+    regionEl.style.left = (videoOffset + x1 * scaleX) + 'px';
+    regionEl.style.top = (videoTop + y1 * scaleY) + 'px';
+    regionEl.style.width = (w * scaleX) + 'px';
+    regionEl.style.height = (h * scaleY) + 'px';
+    const scale = Math.max(1.1, Math.min(5, vw / w));
+    const label = regionEl.querySelector('.camera-region-label');
+    if (label) label.textContent = scale.toFixed(1) + 'x zoom';
+  }
+});
+
+videoContainer?.addEventListener('mouseup', (e) => {
+  if (!isDraggingRegion || targetModeIdx < 0 || !dragStart) return;
+  isDraggingRegion = false;
+  const move = DATA.cameraMoves?.[targetModeIdx];
+  if (!move) { dragStart = null; return; }
+
+  const rect = video.getBoundingClientRect();
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
+  const endX = Math.round(((e.clientX - rect.left) / rect.width) * vw);
+  const endY = Math.round(((e.clientY - rect.top) / rect.height) * vh);
+
+  const x1 = Math.max(0, Math.min(dragStart.x, endX));
+  const y1 = Math.max(0, Math.min(dragStart.y, endY));
+  const x2 = Math.min(vw, Math.max(dragStart.x, endX));
+  const y2 = Math.min(vh, Math.max(dragStart.y, endY));
+  const w = Math.max(50, x2 - x1);
+  const h = Math.max(50, y2 - y1);
+
+  // Set camera move from the drawn region
+  move.x = Math.round(x1 + w / 2); // center x
+  move.y = Math.round(y1 + h / 2); // center y
+  move.w = w;
+  move.h = h;
+  move.scale = Math.max(1.1, Math.min(5, Math.round((vw / w) * 10) / 10));
+
+  // Update the scale input in the sidebar
+  const scaleInput = document.querySelector('[data-cm-field="scale"][data-cm-idx="' + targetModeIdx + '"]');
+  if (scaleInput) scaleInput.value = String(move.scale);
+
+  // Keep region visible
+  const regionEl = document.getElementById('camera-region');
+  if (regionEl) regionEl.classList.remove('target-preview');
+  updateCameraRegionOverlay({ scale: move.scale, x: move.x, y: move.y });
 
   document.querySelector('.video-container')?.classList.remove('target-mode');
   document.querySelectorAll('.btn-target').forEach(b => b.classList.remove('active'));
   targetModeIdx = -1;
+  dragStart = null;
   markDirty();
+  renderTimelineMarkers();
 });
 
 async function saveCameraMoves() {
-  if (!DATA.cameraMoves?.length) return;
+  // Un-shift camera moves back to original (pre-trim) timeline for storage
+  const trim = DATA.headTrimMs ?? 0;
+  const moves = (DATA.cameraMoves ?? []).map(m => ({
+    ...m,
+    startMs: m.startMs + trim,
+  }));
   await fetch('/api/camera-moves', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(DATA.cameraMoves),
+    body: JSON.stringify(moves),
   });
 }
 
