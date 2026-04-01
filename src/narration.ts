@@ -13,12 +13,22 @@ export interface SceneDurationOptions {
   fallbackMs?: number;
 }
 
+export interface CursorSample {
+  /** Normalized X position (0..1 of viewport width). */
+  cx: number;
+  /** Normalized Y position (0..1 of viewport height). */
+  cy: number;
+  /** Timestamp in ms from timeline start. */
+  timeMs: number;
+}
+
 export class NarrationTimeline {
   private timings: Map<string, number> = new Map();
   private startTime: number | null = null;
   private sceneDurations: Record<string, number> = {};
   private cachedPlacements: Placement[] | null = null;
   private _cameraMoves: CameraMove[] = [];
+  private _cursorTelemetry: CursorSample[] = [];
 
   constructor(sceneDurations?: Record<string, number>) {
     if (sceneDurations) {
@@ -70,6 +80,23 @@ export class NarrationTimeline {
     return [...this._cameraMoves];
   }
 
+  /**
+   * Record a cursor position sample for dwell-based camera suggestions.
+   * Coordinates should be normalized to 0..1 of the viewport.
+   */
+  recordCursorPosition(cx: number, cy: number): void {
+    if (this.startTime === null) return;
+    this._cursorTelemetry.push({
+      cx,
+      cy,
+      timeMs: Date.now() - this.startTime,
+    });
+  }
+
+  getCursorTelemetry(): CursorSample[] {
+    return [...this._cursorTelemetry];
+  }
+
   getTimings(): Record<string, number> {
     return Object.fromEntries(this.timings);
   }
@@ -82,6 +109,12 @@ export class NarrationTimeline {
     if (this._cameraMoves.length > 0) {
       const cameraMovesPath = outputPath.replace(/\.json$/, '') + '.camera-moves.json';
       await writeFile(cameraMovesPath, JSON.stringify(this._cameraMoves, null, 2), 'utf-8');
+    }
+
+    // Write cursor telemetry for dwell-based camera suggestions
+    if (this._cursorTelemetry.length > 0) {
+      const cursorPath = outputPath.replace(/\.json$/, '') + '.cursor-telemetry.json';
+      await writeFile(cursorPath, JSON.stringify(this._cursorTelemetry), 'utf-8');
     }
   }
 

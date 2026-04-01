@@ -67,7 +67,11 @@ export {
   type FocusRingOptions,
   type DimAroundOptions,
   type ZoomToOptions,
+  trackCursor,
 } from './camera.js';
+
+// Narration (cursor telemetry types)
+export type { CursorSample } from './narration.js';
 
 // Cursor
 export {

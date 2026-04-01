@@ -94,6 +94,8 @@ interface PreviewData {
   pipelineMeta: Record<string, unknown> | null;
   /** Camera moves for post-export zoom/pan effects. */
   cameraMoves: Array<import('./camera-move.js').CameraMove>;
+  /** Cursor telemetry for dwell-based camera suggestions. */
+  cursorTelemetry: Array<{ cx: number; cy: number; timeMs: number }>;
   /** Preview-only background music state. */
   bgm: {
     hasGenerated: boolean;
@@ -405,6 +407,10 @@ function loadPreviewData(
     try { videoDurationMs = getVideoDurationMs(exportedMp4); } catch { /* ignore */ }
   }
 
+  // Load cursor telemetry for dwell-based camera suggestions
+  const cursorTelemetryPath = join(demoDir, '.timing.cursor-telemetry.json');
+  const cursorTelemetry = readJsonFile<Array<{ cx: number; cy: number; timeMs: number }>>(cursorTelemetryPath, []);
+
   // Load camera moves from sidecar file, shift for head trim
   const cameraMovesPath = join(demoDir, '.timing.camera-moves.json');
   let cameraMoves: CameraMove[] = readJsonFile<CameraMove[]>(cameraMovesPath, []);
@@ -426,6 +432,7 @@ function loadPreviewData(
     pipelineMeta,
     bgm,
     cameraMoves,
+    cursorTelemetry,
   };
 }
 
@@ -2064,6 +2071,11 @@ const PREVIEW_HTML = `<!DOCTYPE html>
   .timeline-camera-move { position: absolute; bottom: 0; height: 5px; background: rgba(245,158,11,0.4); border-radius: 2px; pointer-events: auto; cursor: pointer; z-index: 2; }
   .timeline-camera-move:hover { background: rgba(245,158,11,0.7); }
   .timeline-camera-chain { position: absolute; bottom: 2px; height: 1px; background: rgba(245,158,11,0.6); pointer-events: none; z-index: 1; }
+  .timeline-camera-suggestion { position: absolute; bottom: 0; height: 5px; background: rgba(168,85,247,0.25); border: 1px dashed rgba(168,85,247,0.5); border-radius: 2px; pointer-events: auto; cursor: pointer; z-index: 3; }
+  .timeline-camera-suggestion:hover { background: rgba(168,85,247,0.45); }
+  .suggestion-tooltip { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 11px; white-space: nowrap; z-index: 20; display: flex; gap: 6px; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  .suggestion-tooltip .btn-accept { background: #22c55e; color: #fff; border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
+  .suggestion-tooltip .btn-dismiss { background: #6b7280; color: #fff; border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
   .video-container.target-mode { cursor: crosshair; }
   .effects-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
   .effects-section .section-title {
@@ -3470,6 +3482,147 @@ async function saveCameraMoves() {
     body: JSON.stringify(DATA.cameraMoves),
   });
 }
+
+// ─── Cursor-Dwell Camera Suggestions ────────────────────────────────────
+
+const DWELL_MOVE_THRESHOLD = 0.02; // 2% of viewport
+const MIN_DWELL_MS = 450;
+const MAX_DWELL_MS = 2600;
+const dismissedSuggestions = new Set();
+
+function detectDwells(telemetry) {
+  if (!telemetry || telemetry.length < 2) return [];
+  const sorted = [...telemetry].sort((a, b) => a.timeMs - b.timeMs);
+  const dwells = [];
+  let runStart = 0;
+
+  for (let i = 1; i <= sorted.length; i++) {
+    const broke = i === sorted.length ||
+      Math.hypot(sorted[i].cx - sorted[i - 1].cx, sorted[i].cy - sorted[i - 1].cy) > DWELL_MOVE_THRESHOLD;
+    if (broke) {
+      const runLen = i - runStart;
+      if (runLen >= 2) {
+        const duration = sorted[i - 1].timeMs - sorted[runStart].timeMs;
+        if (duration >= MIN_DWELL_MS && duration <= MAX_DWELL_MS) {
+          let sumX = 0, sumY = 0;
+          for (let j = runStart; j < i; j++) {
+            sumX += sorted[j].cx;
+            sumY += sorted[j].cy;
+          }
+          dwells.push({
+            cx: sumX / runLen,
+            cy: sumY / runLen,
+            startMs: sorted[runStart].timeMs,
+            durationMs: duration,
+            id: runStart + '-' + duration,
+          });
+        }
+      }
+      runStart = i;
+    }
+  }
+  return dwells;
+}
+
+function renderSuggestionMarkers() {
+  timelineBar.querySelectorAll('.timeline-camera-suggestion').forEach(n => n.remove());
+  const telemetry = DATA.cursorTelemetry ?? [];
+  if (telemetry.length === 0) return;
+
+  const totalMs = getPreviewDurationMs();
+  if (!totalMs) return;
+
+  const dwells = detectDwells(telemetry);
+  const existingMoves = DATA.cameraMoves ?? [];
+
+  for (const dwell of dwells) {
+    if (dismissedSuggestions.has(dwell.id)) continue;
+    // Skip if a camera move already exists near this dwell
+    const hasMove = existingMoves.some(m =>
+      Math.abs(m.startMs - dwell.startMs) < 1000 &&
+      (m.scale ?? 1.5) > 1.0
+    );
+    if (hasMove) continue;
+
+    const pct = (dwell.startMs / totalMs) * 100;
+    const widthPct = (dwell.durationMs / totalMs) * 100;
+    const el = document.createElement('div');
+    el.className = 'timeline-camera-suggestion';
+    el.style.left = pct + '%';
+    el.style.width = Math.max(widthPct, 0.5) + '%';
+    el.title = 'Suggested camera beat (' + (dwell.durationMs / 1000).toFixed(1) + 's dwell)';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showSuggestionTooltip(el, dwell);
+    });
+    timelineBar.appendChild(el);
+  }
+}
+
+function showSuggestionTooltip(markerEl, dwell) {
+  // Remove existing tooltips
+  document.querySelectorAll('.suggestion-tooltip').forEach(t => t.remove());
+
+  const tooltip = document.createElement('div');
+  tooltip.className = 'suggestion-tooltip';
+
+  const label = document.createElement('span');
+  label.textContent = 'Add camera beat?';
+  tooltip.appendChild(label);
+
+  const acceptBtn = document.createElement('button');
+  acceptBtn.className = 'btn-accept';
+  acceptBtn.textContent = 'Accept';
+  acceptBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    acceptSuggestion(dwell);
+    tooltip.remove();
+    markerEl.remove();
+  });
+  tooltip.appendChild(acceptBtn);
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.className = 'btn-dismiss';
+  dismissBtn.textContent = 'Dismiss';
+  dismissBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dismissedSuggestions.add(dwell.id);
+    tooltip.remove();
+    markerEl.remove();
+  });
+  tooltip.appendChild(dismissBtn);
+
+  markerEl.appendChild(tooltip);
+}
+
+function acceptSuggestion(dwell) {
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
+  if (!DATA.cameraMoves) DATA.cameraMoves = [];
+  DATA.cameraMoves.push({
+    startMs: Math.round(dwell.startMs),
+    durationMs: 400,
+    x: Math.round(dwell.cx * vw),
+    y: Math.round(dwell.cy * vh),
+    w: Math.round(vw / 1.5),
+    h: Math.round(vh / 1.5),
+    scale: 1.5,
+    holdMs: Math.round(Math.min(dwell.durationMs, 2000)),
+  });
+  DATA.cameraMoves.sort((a, b) => a.startMs - b.startMs);
+  // Refresh the scene that contains this timestamp
+  const scene = scenes.find((s, i) => {
+    const next = scenes[i + 1];
+    return dwell.startMs >= s.startMs && (!next || dwell.startMs < next.startMs);
+  });
+  if (scene) refreshCameraMovesUI(scene.name);
+  renderTimelineMarkers();
+  renderSuggestionMarkers();
+  markDirty();
+}
+
+// Render suggestions on load
+setTimeout(renderSuggestionMarkers, 500);
 
 // ─── CSS Transform Camera Preview ───────────────────────────────────────
 

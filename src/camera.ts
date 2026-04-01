@@ -511,3 +511,40 @@ export async function resetCamera(page: Page): Promise<void> {
     // Page may be closed
   }
 }
+
+/**
+ * Start tracking cursor positions for dwell-based camera suggestions.
+ *
+ * Injects a throttled mousemove listener into the page that records
+ * normalized (0..1) cursor positions. Call once at the start of the
+ * demo script — positions are flushed to a sidecar file by the fixture.
+ *
+ * Non-blocking, fire-and-forget safe.
+ */
+export async function trackCursor(
+  page: Page,
+  narration: NarrationTimeline,
+): Promise<void> {
+  try {
+    // Expose a callback for the page to send cursor positions
+    await page.exposeFunction('__argoCursorSample', (cx: number, cy: number) => {
+      narration.recordCursorPosition(cx, cy);
+    });
+
+    // Inject throttled mousemove listener
+    await page.evaluate(() => {
+      let lastTime = 0;
+      const THROTTLE_MS = 100; // 10 samples/sec — enough for dwell detection
+      document.addEventListener('mousemove', (e) => {
+        const now = Date.now();
+        if (now - lastTime < THROTTLE_MS) return;
+        lastTime = now;
+        const cx = e.clientX / window.innerWidth;
+        const cy = e.clientY / window.innerHeight;
+        (window as any).__argoCursorSample(cx, cy);
+      }, { passive: true });
+    });
+  } catch {
+    // Page may be closed or exposeFunction already called
+  }
+}
