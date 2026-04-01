@@ -30,11 +30,12 @@ export default defineConfig({
     frame: {
       padding: 48,
       borderRadius: 16,
-      shadow: 0.6,
-      background: { type: 'gradient', value: 'linear-gradient(135deg, #e2e8f0, #f8fafc)' },
+      shadow: 0.32,
+      background: { type: 'gradient', value: 'linear-gradient(135deg, #1a1a2e, #16213e)' },
     },
-    // Motion blur: smooth zoom/pan transitions during camera moves.
-    motionBlur: { intensity: 0.4 },
+    // Motion blur: disabled until time-gated to camera move intervals only.
+    // Currently tblend applies to the full stream — no visible benefit on static frames.
+    // motionBlur: { intensity: 0.4 },
     // variants: [
     //   { name: 'vertical', video: { width: 1080, height: 1920 } },
     //   { name: 'square',   video: { width: 1080, height: 1080 } },
