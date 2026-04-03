@@ -56,48 +56,42 @@ export async function injectIntoZone(
   // in-flight app re-renders have settled. A MutationObserver re-injects the
   // overlay if the app removes it (e.g., sift's aggressive DOM updates).
   await page.evaluate(([id, html, styles, css, instId]) => {
-    return new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        const existing = document.getElementById(id);
-        if (existing) existing.remove();
+    const existing = document.getElementById(id);
+    if (existing) existing.remove();
 
-        // Stop any existing guard observer for this zone
-        const guardKey = '__argo_guard_' + id;
-        if ((window as any)[guardKey]) {
-          (window as any)[guardKey].disconnect();
-          delete (window as any)[guardKey];
-        }
+    // Stop any existing guard observer for this zone
+    const guardKey = '__argo_guard_' + id;
+    if ((window as any)[guardKey]) {
+      (window as any)[guardKey].disconnect();
+      delete (window as any)[guardKey];
+    }
 
-        if (css) {
-          const styleId = id + '-style';
-          let styleEl = document.getElementById(styleId) as HTMLStyleElement | null;
-          if (!styleEl) {
-            styleEl = document.createElement('style');
-            styleEl.id = styleId;
-            document.head.appendChild(styleEl);
-          }
-          styleEl.textContent = css;
-        }
+    if (css) {
+      const styleId = id + '-style';
+      let styleEl = document.getElementById(styleId) as HTMLStyleElement | null;
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        document.head.appendChild(styleEl);
+      }
+      styleEl.textContent = css;
+    }
 
-        const container = document.createElement('div');
-        container.id = id;
-        if (instId) container.dataset.argoInstance = instId;
-        container.innerHTML = html; // safe — escaped by template renderers
-        Object.assign(container.style, styles);
+    const container = document.createElement('div');
+    container.id = id;
+    if (instId) container.dataset.argoInstance = instId;
+    container.innerHTML = html; // safe — escaped by template renderers
+    Object.assign(container.style, styles);
+    document.documentElement.appendChild(container);
+
+    // Guard: re-inject if removed by app re-renders
+    const observer = new MutationObserver(() => {
+      if (!document.getElementById(id) && container.dataset.argoInstance === instId) {
         document.documentElement.appendChild(container);
-
-        // Guard: re-inject if removed by app re-renders
-        const observer = new MutationObserver(() => {
-          if (!document.getElementById(id) && container.dataset.argoInstance === instId) {
-            document.documentElement.appendChild(container);
-          }
-        });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
-        (window as any)[guardKey] = observer;
-
-        resolve();
-      });
+      }
     });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    (window as any)[guardKey] = observer;
   }, [zoneId, contentHtml, baseStyles, animationCSS ?? '', instanceId ?? ''] as const);
 }
 
