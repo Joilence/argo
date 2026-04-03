@@ -117,30 +117,76 @@ export async function detectBackgroundTheme(page: Page, zone: Zone): Promise<Bac
     // Fall back: resolve CSS custom properties used for backgrounds.
     // getComputedStyle(body).backgroundColor returns transparent when
     // the background is set via CSS variables (e.g., background: var(--bg)).
-    // We resolve the variable value and parse the hex/rgb color.
+    // Scan ALL custom properties on :root for background-related names,
+    // not just a fixed list — catches Tailwind (--panel, --surface), shadcn,
+    // and other naming conventions.
     const rootStyle = getComputedStyle(document.documentElement);
-    const bgVarNames = ['--bg', '--background', '--bg-color', '--background-color'];
-    for (const varName of bgVarNames) {
-      const varVal = rootStyle.getPropertyValue(varName).trim();
-      if (!varVal) continue;
-      // Try hex color
-      const hexMatch = varVal.match(/^#([0-9a-f]{3,8})$/i);
+
+    function parseCssColor(val: string): number | null {
+      const v = val.trim();
+      // Hex color
+      const hexMatch = v.match(/^#([0-9a-f]{3,8})$/i);
       if (hexMatch) {
         let hex = hexMatch[1];
         if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
         const r = parseInt(hex.slice(0, 2), 16);
         const g = parseInt(hex.slice(2, 4), 16);
         const b = parseInt(hex.slice(4, 6), 16);
-        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        return lum < 128 ? 'light' as const : 'dark' as const;
+        return 0.299 * r + 0.587 * g + 0.114 * b;
       }
-      // Try rgb/rgba
-      const rgbMatch = varVal.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      // rgb/rgba
+      const rgbMatch = v.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
       if (rgbMatch) {
-        const lum = 0.299 * Number(rgbMatch[1]) + 0.587 * Number(rgbMatch[2]) + 0.114 * Number(rgbMatch[3]);
-        return lum < 128 ? 'light' as const : 'dark' as const;
+        return 0.299 * Number(rgbMatch[1]) + 0.587 * Number(rgbMatch[2]) + 0.114 * Number(rgbMatch[3]);
       }
+      // oklch/hsl — convert via a hidden element
+      if (/^(oklch|hsl|lch|lab)\(/.test(v)) {
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:absolute;width:0;height:0;background:' + v;
+        document.body.appendChild(probe);
+        const computed = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        const m = computed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (m) return 0.299 * Number(m[1]) + 0.587 * Number(m[2]) + 0.114 * Number(m[3]);
+      }
+      return null;
     }
+
+    // Check well-known variable names first (fast path)
+    const bgVarNames = [
+      '--bg', '--background', '--bg-color', '--background-color',
+      '--panel', '--surface', '--bg-primary', '--color-bg',
+      '--app-bg', '--page-bg', '--body-bg',
+    ];
+    for (const varName of bgVarNames) {
+      const varVal = rootStyle.getPropertyValue(varName).trim();
+      if (!varVal) continue;
+      const lum = parseCssColor(varVal);
+      if (lum !== null) return lum < 128 ? 'light' as const : 'dark' as const;
+    }
+
+    // Broad scan: enumerate all custom properties on :root stylesheets
+    // and check any whose name contains bg/background/surface/panel
+    try {
+      const bgPattern = /(?:bg|background|surface|panel|canvas|base)/i;
+      for (const sheet of document.styleSheets) {
+        try {
+          for (const rule of sheet.cssRules) {
+            if (rule instanceof CSSStyleRule && rule.selectorText === ':root') {
+              for (let i = 0; i < rule.style.length; i++) {
+                const prop = rule.style[i];
+                if (prop.startsWith('--') && bgPattern.test(prop)) {
+                  const val = rootStyle.getPropertyValue(prop).trim();
+                  if (!val) continue;
+                  const lum = parseCssColor(val);
+                  if (lum !== null) return lum < 128 ? 'light' as const : 'dark' as const;
+                }
+              }
+            }
+          }
+        } catch { /* cross-origin stylesheet — skip */ }
+      }
+    } catch { /* CSP or other restriction */ }
 
     // Check if html/body has a class indicating dark mode
     const htmlClasses = document.documentElement.className;
