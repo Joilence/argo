@@ -138,7 +138,7 @@ export class NarrationTimeline {
       + (options?.leadOutMs ?? 400);
 
     const min = options?.minMs ?? 2200;
-    const max = options?.maxMs ?? 8000;
+    const max = options?.maxMs ?? 30000;
     return Math.max(min, Math.min(max, raw));
   }
 

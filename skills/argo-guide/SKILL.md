@@ -142,7 +142,7 @@ The pipeline trims video to start ~200ms before the first `narration.mark()`. Ev
 
 `durationFor()` formula: `clipMs * multiplier + leadInMs + leadOutMs`, clamped to `[minMs, maxMs]`.
 
-Defaults: `leadInMs: 200`, `leadOutMs: 400`, `minMs: 2200`, `maxMs: 8000`, `fallbackMs: 5000`.
+Defaults: `leadInMs: 200`, `leadOutMs: 400`, `minMs: 2200`, `maxMs: 30000`, `fallbackMs: 5000`.
 
 Override per-scene: `narration.durationFor('closing', { maxMs: 14000, leadOutMs: 800 })`.
 

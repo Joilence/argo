@@ -152,8 +152,10 @@ describe('durationFor', () => {
 
   it('clamps to maxMs', () => {
     const timeline = new NarrationTimeline({ long: 20000 });
-    // 20000 * 1 + 200 + 400 = 20600, but max is 8000
-    expect(timeline.durationFor('long')).toBe(8000);
+    // 20000 * 1 + 200 + 400 = 20600, under default max of 30000
+    expect(timeline.durationFor('long')).toBe(20600);
+    // Explicit maxMs still works
+    expect(timeline.durationFor('long', { maxMs: 8000 })).toBe(8000);
   });
 
   it('respects custom min/max', () => {
