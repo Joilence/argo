@@ -156,9 +156,8 @@ export interface InitFromOptions {
 
 /**
  * Convert an existing Playwright test into an Argo demo project.
- * Generates demo script (with fixture swap + mark() calls),
- * skeleton voiceover.json (with _hint fields for LLM),
- * and skeleton overlays.json.
+ * Generates demo script (with fixture swap + mark() calls)
+ * and a unified .scenes.json manifest (with _hint fields for LLM).
  */
 export async function initFrom(options: InitFromOptions): Promise<void> {
   const cwd = options.cwd ?? process.cwd();

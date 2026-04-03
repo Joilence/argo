@@ -32,7 +32,7 @@ Argo turns Playwright demo scripts into polished product demo videos with AI voi
 4. **If the user already has a Playwright test:** Run `npx argo init --from <path>` to auto-generate demo script + skeleton manifest. Then fill in voiceover text (use `_hint` fields as context) and refine overlays. Skip to step 8.
 5. Explore the app — navigate routes and features to plan a meaningful demo script.
 6. Write `demos/<name>.demo.ts` — see `examples/` directory in this skill for a complete template.
-7. Write `demos/<name>.scenes.json` — unified manifest with narration text and optional overlay per scene. Scene names must exactly match `narration.mark()` arguments.
+7. Write `demos/<name>.scenes.json` — **single unified manifest** with narration text and optional overlay per scene. Do NOT create separate `.overlays.json` or `.voiceover.json` — everything goes in `.scenes.json`. Scene names must exactly match `narration.mark()` arguments.
 8. Run: `npx argo pipeline <name>`
 9. Report output — finished MP4 is in `videos/` (or configured `outputDir`).
 
@@ -138,6 +138,8 @@ Override per-scene: `narration.durationFor('closing', { maxMs: 14000, leadOutMs:
 ---
 
 ## Scenes Manifest
+
+**IMPORTANT:** Argo uses a single unified `.scenes.json` manifest per demo. Do NOT create separate `.overlays.json` or `.voiceover.json` files — those formats are obsolete. All voiceover text, overlay cues, effects, and per-scene settings go in ONE file: `demos/<name>.scenes.json`.
 
 File: `demos/<name>.scenes.json` — JSON array combining voiceover + overlay definitions per scene.
 
