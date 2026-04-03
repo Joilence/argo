@@ -174,7 +174,7 @@ Custom `test` fixture extends Playwright's `test` with a `narration` fixture tha
 
 - `narration.durationFor(scene, opts?)` computes wait times from TTS clip lengths (replaces hardcoded ms values in demo scripts)
 - Pipeline writes `.scene-durations.json` after TTS → env var `ARGO_SCENE_DURATIONS_PATH` passes it to Playwright subprocess → fixture loads into `NarrationTimeline`
-- Formula: `clipMs * multiplier + leadInMs + leadOutMs`, clamped to [minMs, maxMs] (defaults: 200ms lead-in, 400ms lead-out, 2200–8000ms range, 3000ms fallback)
+- Formula: `clipMs * multiplier + leadInMs + leadOutMs`, clamped to [minMs, maxMs] (defaults: 200ms lead-in, 400ms lead-out, 2200–8000ms range, 5000ms fallback). Logs a warning on first fallback when no scene durations are loaded.
 
 ## Env Vars Bridging Config to Playwright
 

@@ -142,7 +142,7 @@ The pipeline trims video to start ~200ms before the first `narration.mark()`. Ev
 
 `durationFor()` formula: `clipMs * multiplier + leadInMs + leadOutMs`, clamped to `[minMs, maxMs]`.
 
-Defaults: `leadInMs: 200`, `leadOutMs: 400`, `minMs: 2200`, `maxMs: 8000`, `fallbackMs: 3000`.
+Defaults: `leadInMs: 200`, `leadOutMs: 400`, `minMs: 2200`, `maxMs: 8000`, `fallbackMs: 5000`.
 
 Override per-scene: `narration.durationFor('closing', { maxMs: 14000, leadOutMs: 800 })`.
 
@@ -336,7 +336,7 @@ Argo demos are standard Playwright tests — they show up in VS Code's Playwrigh
 
 - Overlays resolve automatically (fixture auto-discovers `demos/<name>.scenes.json`)
 - Camera effects, confetti, cursor highlight all work
-- Timing uses fallback defaults (3000ms per scene) — for exact TTS timing, run `argo pipeline` first
+- Timing uses fallback defaults (5000ms per scene) — for exact TTS timing, run `argo pipeline` first
 
 **Workflow:** Write → click play in VS Code to preview → run `argo pipeline` for the final video.
 

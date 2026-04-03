@@ -29,6 +29,7 @@ export class NarrationTimeline {
   private cachedPlacements: Placement[] | null = null;
   private _cameraMoves: CameraMove[] = [];
   private _cursorTelemetry: CursorSample[] = [];
+  private _fallbackWarned = false;
 
   constructor(sceneDurations?: Record<string, number>) {
     if (sceneDurations) {
@@ -120,8 +121,17 @@ export class NarrationTimeline {
 
   private getBaseDuration(scene: string, options?: SceneDurationOptions): number {
     const clipMs = this.sceneDurations[scene];
-    const fallback = options?.fallbackMs ?? 3000;
-    if (clipMs === undefined) return fallback;
+    const fallback = options?.fallbackMs ?? 5000;
+    if (clipMs === undefined) {
+      if (!this._fallbackWarned && Object.keys(this.sceneDurations).length === 0) {
+        this._fallbackWarned = true;
+        console.warn(
+          `Warning: scene durations not loaded — using ${fallback}ms fallback for "${scene}" (and subsequent scenes). ` +
+          `Run 'argo pipeline' for TTS-synced durations, or 'argo tts generate' first.`,
+        );
+      }
+      return fallback;
+    }
 
     const raw = clipMs * (options?.multiplier ?? 1)
       + (options?.leadInMs ?? 200)

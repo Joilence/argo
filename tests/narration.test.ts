@@ -124,12 +124,12 @@ describe('flush', () => {
 describe('durationFor', () => {
   it('returns fallback when no durations loaded', () => {
     const timeline = new NarrationTimeline();
-    expect(timeline.durationFor('missing')).toBe(3000);
+    expect(timeline.durationFor('missing')).toBe(5000);
   });
 
   it('returns custom fallback', () => {
     const timeline = new NarrationTimeline();
-    expect(timeline.durationFor('missing', { fallbackMs: 5000 })).toBe(5000);
+    expect(timeline.durationFor('missing', { fallbackMs: 7000 })).toBe(7000);
   });
 
   it('computes duration from clip length with default lead-in/out', () => {
