@@ -145,7 +145,7 @@ export async function record(demoName: string, options: RecordOptions): Promise<
         env: {
           ...process.env,
           ARGO_DEMO_NAME: demoName,
-          ARGO_OUTPUT_DIR: argoDir,
+          ARGO_OUTPUT_DIR: path.resolve(argoDir),
           ARGO_PROGRESS_PATH: progressPath,
           BASE_URL: options.baseURL,
           ARGO_ASSET_URL: assetServer?.url ?? '',

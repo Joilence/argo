@@ -77,7 +77,7 @@ describe('record', () => {
       ],
       expect.objectContaining({
         env: expect.objectContaining({
-          ARGO_OUTPUT_DIR: join('.argo', 'demo'),
+          ARGO_OUTPUT_DIR: resolve(join('.argo', 'demo')),
           BASE_URL: 'http://localhost:4321',
         }),
       }),
