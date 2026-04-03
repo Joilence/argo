@@ -44,6 +44,13 @@ describe('removeZone', () => {
     expect(page.evaluate).toHaveBeenCalledTimes(1);
     const [fn, arg] = (page.evaluate as any).mock.calls[0];
     expect(typeof fn).toBe('function');
-    expect(arg).toBe('argo-overlay-top-left');
+    expect(arg).toEqual(['argo-overlay-top-left', '']);
+  });
+
+  it('passes instanceId to removeZone for safe cleanup', async () => {
+    const page = createMockPage();
+    await removeZone(page, 'top-left', 'abc123');
+    const [, arg] = (page.evaluate as any).mock.calls[0];
+    expect(arg).toEqual(['argo-overlay-top-left', 'abc123']);
   });
 });

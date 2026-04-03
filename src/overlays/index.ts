@@ -95,9 +95,12 @@ export async function showOverlay(
   const motionCSS = getMotionCSS(motion, zoneId);
   const motionStyles = getMotionStyles(motion, zoneId);
 
-  await injectIntoZone(page, zone, contentHtml, { ...styles, ...motionStyles }, motionCSS);
+  // Tag this overlay instance so removeZone only removes it if it hasn't
+  // been replaced by a newer overlay in the same zone (fire-and-forget safe).
+  const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await injectIntoZone(page, zone, contentHtml, { ...styles, ...motionStyles }, motionCSS, instanceId);
   await page.waitForTimeout(durationMs);
-  await removeZone(page, zone);
+  await removeZone(page, zone, instanceId);
 }
 
 export async function hideOverlay(
@@ -151,10 +154,11 @@ export async function withOverlay(
   const motionCSS = getMotionCSS(motion, zoneId);
   const motionStyles = getMotionStyles(motion, zoneId);
 
-  await injectIntoZone(page, zone, contentHtml, { ...styles, ...motionStyles }, motionCSS);
+  const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await injectIntoZone(page, zone, contentHtml, { ...styles, ...motionStyles }, motionCSS, instanceId);
   try {
     await action();
   } finally {
-    await removeZone(page, zone);
+    await removeZone(page, zone, instanceId);
   }
 }

@@ -49,7 +49,7 @@ describe('hideOverlay', () => {
     const page = createMockPage();
     await hideOverlay(page);
     const [, arg] = (page.evaluate as any).mock.calls[0];
-    expect(arg).toContain('bottom-center');
+    expect(arg[0]).toContain('bottom-center');
   });
 });
 
