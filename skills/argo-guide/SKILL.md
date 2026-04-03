@@ -20,16 +20,16 @@ Argo turns Playwright demo scripts into polished product demo videos with AI voi
 2. **`argo.config.mjs`** in project root — scaffold with `npx argo init` if missing (use `.mjs` to avoid ESM warnings)
 3. **Playwright browsers** — `npx playwright install chromium` (or `webkit` for best macOS quality)
 4. **ffmpeg** — `brew install ffmpeg` (macOS) or `apt install ffmpeg` (Linux)
-5. **Gitignore** — add these to `.gitignore` (large generated artifacts that should NOT be committed):
+5. **Gitignore** — add these to `.gitignore` (large intermediate artifacts that should NOT be committed):
    ```
-   # Argo pipeline artifacts
+   # Argo intermediate artifacts
    .argo/
-   videos/
    test-results/
    ```
    - `.argo/` — TTS clips (WAV), raw recordings (WebM), timing files, aligned audio, traces (~150MB+ per demo)
-   - `videos/` — exported MP4s, GIFs, subtitles, scene reports
    - `test-results/` — Playwright video captures and traces
+   
+   `videos/` is optional — some teams gitignore it (large MP4s), others commit final videos for READMEs and release notes. Use `git add -f videos/<file>` to selectively track specific outputs if gitignored.
    
    **Do commit:** `demos/*.demo.ts`, `demos/*.scenes.json`, `argo.config.mjs`, `playwright.config.ts` — these are source files.
 
