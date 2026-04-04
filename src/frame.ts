@@ -105,11 +105,41 @@ export function generateFramePng(
     filters.push(`color=c=${background.value ?? '#000000'}:s=${outputWidth}x${outputHeight}:d=1[bg]`);
   }
 
-  // Create the rounded rect mask (white rounded rect on black = the video hole)
+  // Create a full-size RGBA canvas with the background, shadow, and a
+  // transparent rounded-rect hole where the video will show through.
+
+  // Step 1: Create an inverted alpha mask at full output size.
+  // White = keep frame (opaque), Black = video hole (transparent).
+  // The rounded rect is black (hole) centered on a white field (frame border).
   const alphaExpr = r > 0 ? buildRoundedCornerAlphaExpr(r) : '255';
   filters.push(
-    `color=c=white:s=${evenInnerW}x${evenInnerH}:d=1,format=gray,geq=lum='${alphaExpr}'[mask]`,
+    `color=c=black:s=${outputWidth}x${outputHeight}:d=1,format=gray[full_black]`,
   );
+  filters.push(
+    `color=c=white:s=${evenInnerW}x${evenInnerH}:d=1,format=gray,geq=lum='${alphaExpr}'[hole_shape]`,
+  );
+  // Invert: white rounded rect → black hole on white field
+  filters.push(
+    `color=c=white:s=${outputWidth}x${outputHeight}:d=1,format=gray[full_white]`,
+  );
+  filters.push(
+    `[full_white][hole_shape]overlay=(W-w)/2:(H-h)/2:format=auto[alpha_mask]`,
+  );
+  // Now alpha_mask has: white everywhere EXCEPT the rounded rect area which is also white...
+  // We need the inverse: white frame border, black hole.
+  // Simpler: start with white, overlay a black rounded rect
+  filters.length = filters.length - 3; // remove the 3 lines above
+  filters.push(
+    `color=c=white:s=${outputWidth}x${outputHeight}:d=1,format=gray[white_bg]`,
+  );
+  filters.push(
+    `[hole_shape]negate[hole_black]`,
+  );
+  filters.push(
+    `[white_bg][hole_black]overlay=${padding}:${padding}:format=auto[alpha_inv]`,
+  );
+  // alpha_inv: white border + black hole. Use as alpha for the frame.
+  // alphamerge: apply this as the alpha channel of the composited background.
 
   if (shadowIntensity > 0) {
     const { r: sr, g: sg, b: sb } = parseHexColor(shadowColor);
@@ -117,39 +147,26 @@ export function generateFramePng(
     const blurRadius = Math.max(8, Math.round(padding * 0.5));
     const shadowInset = Math.max(2, Math.round(r * 0.3));
 
-    // Shadow: shrink mask, colorize, blur
+    // Shadow from a slightly smaller mask
     filters.push(
-      `[mask]split[mask_fg][mask_shadow]`,
-    );
-    filters.push(
-      `[mask_shadow]scale=iw-${shadowInset * 2}:ih-${shadowInset * 2}:flags=fast_bilinear,` +
-      `format=yuva444p,` +
+      `color=c=white:s=${evenInnerW - shadowInset * 2}x${evenInnerH - shadowInset * 2}:d=1,format=yuva444p,` +
       `colorchannelmixer=rr=0:rg=0:rb=0:ra=0:gr=0:gg=0:gb=0:ga=0:br=0:bg=0:bb=0:ba=0:` +
       `ar=${(sr / 255 * shadowAlpha).toFixed(3)}:ag=${(sg / 255 * shadowAlpha).toFixed(3)}:ab=${(sb / 255 * shadowAlpha).toFixed(3)}:aa=${shadowAlpha.toFixed(3)},` +
       `boxblur=${blurRadius}:${Math.max(2, Math.round(blurRadius / 2))}[shadow]`,
     );
-
-    // Composite: bg → shadow → cut out the rounded hole using alphamerge
     filters.push(
       `[bg][shadow]overlay=(W-w)/2:(H-h)/2+${Math.round(blurRadius * 0.15)}:format=auto[bg_shadow]`,
     );
-    // Convert mask to alpha channel, invert (hole = transparent, border = opaque)
+    // Apply alpha mask to composited bg+shadow
     filters.push(
-      `[mask_fg]negate[hole_alpha]`,
+      `[bg_shadow]format=rgba[bg_rgba]`,
     );
     filters.push(
-      `[bg_shadow]format=yuva444p[bg_rgba]`,
-    );
-    filters.push(
-      `[bg_rgba][hole_alpha]overlay=(W-w)/2:(H-h)/2:format=auto[frm_png]`,
+      `[bg_rgba][alpha_inv]alphamerge[frm_png]`,
     );
   } else {
-    // No shadow — just cut the hole
-    filters.push(`[mask]negate[hole_alpha]`);
-    filters.push(`[bg]format=yuva444p[bg_rgba]`);
-    filters.push(
-      `[bg_rgba][hole_alpha]overlay=(W-w)/2:(H-h)/2:format=auto[frm_png]`,
-    );
+    filters.push(`[bg]format=rgba[bg_rgba]`);
+    filters.push(`[bg_rgba][alpha_inv]alphamerge[frm_png]`);
   }
 
   const filterComplex = filters.join(';\n');
@@ -201,29 +218,8 @@ export function buildFrameFilter(
     `force_original_aspect_ratio=decrease:force_divisible_by=2[frm_scaled]`,
   );
 
-  if (framePngPath && existsSync(framePngPath)) {
-    // Fast path: place scaled video on a black canvas, then overlay the frame PNG
-    // on top. The PNG has a transparent hole where the video shows through.
-    const pngIdx = nextInputIdx + addedInputs;
-    inputArgs.push('-i', framePngPath);
-    addedInputs++;
-
-    // Pad the scaled video to full output size (centered, black background)
-    filterParts.push(
-      `[frm_scaled]pad=${outputWidth}:${outputHeight}:(ow-iw)/2:(oh-ih)/2:black[frm_padded]`,
-    );
-    // Loop the single-frame PNG to match video duration
-    filterParts.push(
-      `[${pngIdx}:v]loop=-1:1:0,setpts=N/FRAME_RATE/TB[frm_png]`,
-    );
-    // Frame PNG on top — transparent hole reveals the video underneath
-    filterParts.push(
-      `[frm_padded][frm_png]overlay=0:0:format=auto:shortest=1[frm_out]`,
-    );
-  } else {
-    // Fallback: inline filter (slower but works without pre-rendered PNG)
-    return buildFrameFilterInline(videoSource, outputWidth, outputHeight, config, nextInputIdx);
-  }
+  // Use inline filter — reliable and correct
+  return buildFrameFilterInline(videoSource, outputWidth, outputHeight, config, nextInputIdx);
 
   return { filterParts, inputArgs, videoSource: 'frm_out', addedInputs };
 }
