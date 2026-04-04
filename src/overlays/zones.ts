@@ -219,18 +219,8 @@ export async function detectBackgroundTheme(page: Page, zone: Zone): Promise<Bac
 export async function removeZone(page: Page, zone: Zone, instanceId?: string): Promise<void> {
   const zoneId = ZONE_ID_PREFIX + zone;
   await page.evaluate(([id, instId]) => {
-    // Disconnect the guard observer first so it doesn't re-inject
-    const guardKey = '__argo_guard_' + id;
-    if ((window as any)[guardKey]) {
-      const observer = (window as any)[guardKey];
-      // Only disconnect if this is our instance (or no instance tracking)
-      if (!instId || !observer.__argoInstance || observer.__argoInstance === instId) {
-        observer.disconnect();
-        delete (window as any)[guardKey];
-      }
-    }
-
     const el = document.getElementById(id);
+    // Only remove if this is still the same overlay instance (not replaced by a newer one).
     if (el && (!instId || el.dataset.argoInstance === instId)) {
       el.remove();
     }

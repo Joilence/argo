@@ -193,3 +193,22 @@ describe('durationFor', () => {
     vi.useRealTimers();
   });
 });
+
+describe('sceneDuration', () => {
+  it('returns the same value before and after time elapses', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const timeline = new NarrationTimeline({ hero: 4000 });
+    timeline.start();
+    timeline.mark('hero');
+    const before = timeline.sceneDuration('hero');
+    vi.advanceTimersByTime(2000);
+    expect(timeline.sceneDuration('hero')).toBe(before);
+    vi.useRealTimers();
+  });
+
+  it('returns fallback for unknown scene', () => {
+    const timeline = new NarrationTimeline();
+    expect(timeline.sceneDuration('missing')).toBe(5000);
+  });
+});
