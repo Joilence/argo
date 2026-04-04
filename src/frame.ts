@@ -79,11 +79,12 @@ export function generateFramePng(
   const evenInnerH = innerH % 2 === 0 ? innerH : innerH - 1;
   const r = Math.min(borderRadius, Math.floor(evenInnerW / 2), Math.floor(evenInnerH / 2));
 
-  // Build ffmpeg filter to render the frame as a single PNG.
-  // Creates: background → (optional shadow) → rounded corner cutout (transparent hole).
-  const filters: string[] = [];
+  // Generate a single-frame PNG with the background and a transparent
+  // rounded-rect hole. Uses geq on the full-size image to punch the hole
+  // directly in the alpha channel — no separate mask compositing needed.
 
-  // Background source
+  // Build the background source filter
+  let bgFilter: string;
   if (background.type === 'gradient') {
     const grad = parseGradient(background.value ?? '');
     if (grad) {
@@ -94,90 +95,44 @@ export function generateFramePng(
       const y0 = clampY(outputHeight / 2 - Math.cos(rad) * outputHeight / 2);
       const x1 = clampX(outputWidth / 2 + Math.sin(rad) * outputWidth / 2);
       const y1 = clampY(outputHeight / 2 + Math.cos(rad) * outputHeight / 2);
-      filters.push(
-        `gradients=s=${outputWidth}x${outputHeight}:c0=${grad.color0}:c1=${grad.color1}:x0=${x0}:y0=${y0}:x1=${x1}:y1=${y1}:duration=1:speed=0[bg]`,
-      );
+      bgFilter = `gradients=s=${outputWidth}x${outputHeight}:c0=${grad.color0}:c1=${grad.color1}:x0=${x0}:y0=${y0}:x1=${x1}:y1=${y1}:duration=1:speed=0,format=rgba`;
     } else {
       const colorMatch = (background.value ?? '').match(/#[0-9a-fA-F]{3,8}/);
-      filters.push(`color=c=${colorMatch?.[0] ?? '#000000'}:s=${outputWidth}x${outputHeight}:d=1[bg]`);
+      bgFilter = `color=c=${colorMatch?.[0] ?? '#000000'}:s=${outputWidth}x${outputHeight}:d=1,format=rgba`;
     }
   } else {
-    filters.push(`color=c=${background.value ?? '#000000'}:s=${outputWidth}x${outputHeight}:d=1[bg]`);
+    bgFilter = `color=c=${background.value ?? '#000000'}:s=${outputWidth}x${outputHeight}:d=1,format=rgba`;
   }
 
-  // Create a full-size RGBA canvas with the background, shadow, and a
-  // transparent rounded-rect hole where the video will show through.
+  // Build geq that punches a transparent rounded-rect hole in the alpha channel.
+  // Inside the padded rect: alpha = 0 (transparent hole, anti-aliased corners).
+  // Outside: alpha = 255 (opaque frame border).
+  const x1 = padding;
+  const y1 = padding;
+  const x2 = padding + evenInnerW - 1;
+  const y2 = padding + evenInnerH - 1;
 
-  // Step 1: Create an inverted alpha mask at full output size.
-  // White = keep frame (opaque), Black = video hole (transparent).
-  // The rounded rect is black (hole) centered on a white field (frame border).
-  const alphaExpr = r > 0 ? buildRoundedCornerAlphaExpr(r) : '255';
-  filters.push(
-    `color=c=black:s=${outputWidth}x${outputHeight}:d=1,format=gray[full_black]`,
-  );
-  filters.push(
-    `color=c=white:s=${evenInnerW}x${evenInnerH}:d=1,format=gray,geq=lum='${alphaExpr}'[hole_shape]`,
-  );
-  // Invert: white rounded rect → black hole on white field
-  filters.push(
-    `color=c=white:s=${outputWidth}x${outputHeight}:d=1,format=gray[full_white]`,
-  );
-  filters.push(
-    `[full_white][hole_shape]overlay=(W-w)/2:(H-h)/2:format=auto[alpha_mask]`,
-  );
-  // Now alpha_mask has: white everywhere EXCEPT the rounded rect area which is also white...
-  // We need the inverse: white frame border, black hole.
-  // Simpler: start with white, overlay a black rounded rect
-  filters.length = filters.length - 3; // remove the 3 lines above
-  filters.push(
-    `color=c=white:s=${outputWidth}x${outputHeight}:d=1,format=gray[white_bg]`,
-  );
-  filters.push(
-    `[hole_shape]negate[hole_black]`,
-  );
-  filters.push(
-    `[white_bg][hole_black]overlay=${padding}:${padding}:format=auto[alpha_inv]`,
-  );
-  // alpha_inv: white border + black hole. Use as alpha for the frame.
-  // alphamerge: apply this as the alpha channel of the composited background.
+  // Corner distance from the inner rect edge (relative to the inner rect)
+  // Use \\, for comma escaping — ffmpeg -vf parser treats commas as filter separators
+  const e = '\\,'; // escaped comma for ffmpeg expressions
+  const dx = `if(lt(X-${x1}${e}${r})${e}${r}-(X-${x1})${e}if(gt(X-${x1}${e}${evenInnerW - 1 - r})${e}(X-${x1})-(${evenInnerW - 1 - r})${e}0))`;
+  const dy = `if(lt(Y-${y1}${e}${r})${e}${r}-(Y-${y1})${e}if(gt(Y-${y1}${e}${evenInnerH - 1 - r})${e}(Y-${y1})-(${evenInnerH - 1 - r})${e}0))`;
 
-  if (shadowIntensity > 0) {
-    const { r: sr, g: sg, b: sb } = parseHexColor(shadowColor);
-    const shadowAlpha = Math.min(1, shadowIntensity);
-    const blurRadius = Math.max(8, Math.round(padding * 0.5));
-    const shadowInset = Math.max(2, Math.round(r * 0.3));
-
-    // Shadow from a slightly smaller mask
-    filters.push(
-      `color=c=white:s=${evenInnerW - shadowInset * 2}x${evenInnerH - shadowInset * 2}:d=1,format=yuva444p,` +
-      `colorchannelmixer=rr=0:rg=0:rb=0:ra=0:gr=0:gg=0:gb=0:ga=0:br=0:bg=0:bb=0:ba=0:` +
-      `ar=${(sr / 255 * shadowAlpha).toFixed(3)}:ag=${(sg / 255 * shadowAlpha).toFixed(3)}:ab=${(sb / 255 * shadowAlpha).toFixed(3)}:aa=${shadowAlpha.toFixed(3)},` +
-      `boxblur=${blurRadius}:${Math.max(2, Math.round(blurRadius / 2))}[shadow]`,
-    );
-    filters.push(
-      `[bg][shadow]overlay=(W-w)/2:(H-h)/2+${Math.round(blurRadius * 0.15)}:format=auto[bg_shadow]`,
-    );
-    // Apply alpha mask to composited bg+shadow
-    filters.push(
-      `[bg_shadow]format=rgba[bg_rgba]`,
-    );
-    filters.push(
-      `[bg_rgba][alpha_inv]alphamerge[frm_png]`,
-    );
+  let holeAlpha: string;
+  if (r > 0) {
+    holeAlpha = `if(between(X${e}${x1}${e}${x2})*between(Y${e}${y1}${e}${y2})${e}` +
+      `if(lte(min(${dx}${e}${dy})${e}0)${e}0${e}clip(255-255*(${r}+1-hypot(${dx}${e}${dy}))${e}0${e}255))${e}255)`;
   } else {
-    filters.push(`[bg]format=rgba[bg_rgba]`);
-    filters.push(`[bg_rgba][alpha_inv]alphamerge[frm_png]`);
+    holeAlpha = `if(between(X${e}${x1}${e}${x2})*between(Y${e}${y1}${e}${y2})${e}0${e}255)`;
   }
 
-  const filterComplex = filters.join(';\n');
+  const vf = `geq=r='r(X${e}Y)':g='g(X${e}Y)':b='b(X${e}Y)':a='${holeAlpha}'`;
 
   const result = spawnSync('ffmpeg', [
     '-y',
-    '-f', 'lavfi', '-i', filterComplex.includes('[bg]') ? 'anullsrc' : 'anullsrc', // dummy
-    '-filter_complex', filterComplex,
-    '-map', '[frm_png]',
+    '-f', 'lavfi', '-i', bgFilter,
+    '-vf', vf,
     '-frames:v', '1',
-    '-f', 'image2',
     '-update', '1',
     outputPath,
   ], { stdio: 'pipe' });
@@ -218,8 +173,25 @@ export function buildFrameFilter(
     `force_original_aspect_ratio=decrease:force_divisible_by=2[frm_scaled]`,
   );
 
-  // Use inline filter — reliable and correct
-  return buildFrameFilterInline(videoSource, outputWidth, outputHeight, config, nextInputIdx);
+  if (framePngPath && existsSync(framePngPath)) {
+    // Fast path: pad video to full size, overlay frame PNG on top.
+    // The PNG has a transparent hole — video shows through.
+    const pngIdx = nextInputIdx + addedInputs;
+    inputArgs.push('-i', framePngPath);
+    addedInputs++;
+
+    filterParts.push(
+      `[frm_scaled]pad=${outputWidth}:${outputHeight}:(ow-iw)/2:(oh-ih)/2:black[frm_padded]`,
+    );
+    filterParts.push(
+      `[${pngIdx}:v]loop=-1:1:0,setpts=N/FRAME_RATE/TB[frm_png]`,
+    );
+    filterParts.push(
+      `[frm_padded][frm_png]overlay=0:0:format=auto:shortest=1[frm_out]`,
+    );
+  } else {
+    return buildFrameFilterInline(videoSource, outputWidth, outputHeight, config, nextInputIdx);
+  }
 
   return { filterParts, inputArgs, videoSource: 'frm_out', addedInputs };
 }
