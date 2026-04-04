@@ -167,10 +167,10 @@ export function buildFrameFilter(
   let addedInputs = 0;
   const srcRef = `[${videoSource}]`;
 
-  // Scale video to fit within padded area
+  // Scale video to exact inner dimensions (no aspect ratio preservation —
+  // the recording viewport matches the config so there's no distortion)
   filterParts.push(
-    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos:` +
-    `force_original_aspect_ratio=decrease:force_divisible_by=2[frm_scaled]`,
+    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos[frm_scaled]`,
   );
 
   if (framePngPath && existsSync(framePngPath)) {
@@ -180,8 +180,10 @@ export function buildFrameFilter(
     inputArgs.push('-i', framePngPath);
     addedInputs++;
 
+    // Pad uses the dominant background color so no black gaps show
+    const bgColor = config.background?.value?.match(/#[0-9a-fA-F]{3,8}/)?.[0] ?? '#000000';
     filterParts.push(
-      `[frm_scaled]pad=${outputWidth}:${outputHeight}:(ow-iw)/2:(oh-ih)/2:black[frm_padded]`,
+      `[frm_scaled]pad=${outputWidth}:${outputHeight}:(ow-iw)/2:(oh-ih)/2:${bgColor}[frm_padded]`,
     );
     filterParts.push(
       `[${pngIdx}:v]loop=-1:1:0,setpts=N/FRAME_RATE/TB[frm_png]`,
