@@ -122,7 +122,7 @@ export {
 export { buildCameraMoveFilter, buildMotionBlurFilter, detectChainedPairs, shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
 
 // Frame
-export { buildFrameFilter, type FrameFilterResult } from './frame.js';
+export { buildFrameFilter, generateFramePng, type FrameFilterResult } from './frame.js';
 
 // Progress
 export { runFfmpegWithProgress } from './progress.js';

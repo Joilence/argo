@@ -5,6 +5,7 @@ import { record } from './record.js';
 import { alignClips, type ClipInfo, type SceneTiming } from './tts/align.js';
 import { parseWavHeader, createWavBuffer } from './tts/engine.js';
 import { exportVideo, checkFfmpeg } from './export.js';
+import { generateFramePng } from './frame.js';
 import { generateSrt, generateVtt } from './subtitles.js';
 import { generateChapterMetadata } from './chapters.js';
 import { buildSceneReport, formatSceneReport } from './report.js';
@@ -322,6 +323,17 @@ export async function runPipeline(
     motionBlur: config.export.motionBlur,
     overlayPngs,
   };
+
+  // Pre-render frame PNG for faster encoding
+  if (config.export.frame) {
+    const framePngPath = join(argoDir, 'frame.png');
+    const outW = config.video.width;
+    const outH = config.video.height;
+    const pngResult = generateFramePng(framePngPath, outW, outH, config.export.frame);
+    if (pngResult) {
+      exportOptions.framePngPath = pngResult;
+    }
+  }
   if (resolvedFreezes.length > 0) {
     exportOptions.freezeSpecs = resolvedFreezes;
   }
@@ -516,6 +528,7 @@ export async function runPipeline(
         watermark: config.export.watermark,
         sharpen: config.export.sharpen,
         frame: config.export.frame,
+        framePngPath: exportOptions.framePngPath, // reuse pre-rendered PNG
         motionBlur: config.export.motionBlur,
         freezeSpecs: variantResolvedFreezes.length > 0 ? variantResolvedFreezes : undefined,
         overlayPngs: variantOverlayPngs,

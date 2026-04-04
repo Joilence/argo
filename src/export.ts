@@ -61,6 +61,8 @@ export interface ExportOptions {
   sharpen?: boolean | { strength: number };
   /** Frame the recording with padding, rounded corners, drop shadow, and background. */
   frame?: FrameConfig;
+  /** Path to a pre-rendered frame PNG (from generateFramePng). Speeds up encoding. */
+  framePngPath?: string;
   /** Apply motion blur during camera move transitions.
    * true = intensity 0.5. { intensity: 0.0-1.0 } to tune. */
   motionBlur?: boolean | { intensity: number };
@@ -371,7 +373,7 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   if (frame) {
     const outW = outputWidth ?? 1920;
     const outH = outputHeight ?? 1080;
-    const frameResult = buildFrameFilter(videoSource, outW, outH, frame, nextInput);
+    const frameResult = buildFrameFilter(videoSource, outW, outH, frame, nextInput, options.framePngPath);
     if (frameResult) {
       args.push(...frameResult.inputArgs);
       filterParts.push(...frameResult.filterParts);
