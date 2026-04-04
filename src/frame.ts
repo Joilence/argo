@@ -202,18 +202,23 @@ export function buildFrameFilter(
   );
 
   if (framePngPath && existsSync(framePngPath)) {
-    // Fast path: overlay video onto pre-rendered frame PNG
+    // Fast path: place scaled video on a black canvas, then overlay the frame PNG
+    // on top. The PNG has a transparent hole where the video shows through.
     const pngIdx = nextInputIdx + addedInputs;
     inputArgs.push('-i', framePngPath);
     addedInputs++;
 
+    // Pad the scaled video to full output size (centered, black background)
+    filterParts.push(
+      `[frm_scaled]pad=${outputWidth}:${outputHeight}:(ow-iw)/2:(oh-ih)/2:black[frm_padded]`,
+    );
     // Loop the single-frame PNG to match video duration
     filterParts.push(
-      `[${pngIdx}:v]loop=-1:1:0,setpts=N/FRAME_RATE/TB[frm_bg]`,
+      `[${pngIdx}:v]loop=-1:1:0,setpts=N/FRAME_RATE/TB[frm_png]`,
     );
-    // Place video centered in the frame's transparent hole
+    // Frame PNG on top — transparent hole reveals the video underneath
     filterParts.push(
-      `[frm_bg][frm_scaled]overlay=(W-w)/2:(H-h)/2:format=auto:shortest=1[frm_out]`,
+      `[frm_padded][frm_png]overlay=0:0:format=auto:shortest=1[frm_out]`,
     );
   } else {
     // Fallback: inline filter (slower but works without pre-rendered PNG)
