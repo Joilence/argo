@@ -265,7 +265,8 @@ import { defineConfig, demosProject, engines } from '@argo-video/cli';
 | `withCaption(page, scene, text, action)` | Show caption during an async action |
 | `hideCaption(page)` | Remove caption |
 | `narration.mark(scene)` | Record a scene timestamp |
-| `narration.durationFor(scene, opts?)` | Compute hold duration from TTS clip length |
+| `narration.durationFor(scene, opts?)` | Compute hold duration from TTS clip length (remaining time from now) |
+| `narration.sceneDuration(scene, opts?)` | Full scene duration — stable, non-decreasing (for overlay display) |
 | `defineConfig(userConfig)` | Create config with defaults |
 | `demosProject(options)` | Create Playwright project entry |
 

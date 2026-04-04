@@ -52,6 +52,8 @@ Injected into the browser during recording via `page.evaluate()`. Uses a zone-ba
 
 Overlay cues use discriminated unions — each template type has its own TypeScript type with `type` as the discriminant field. `showOverlay`/`withOverlay` resolve overlay content from the `.scenes.json` manifest at runtime via `ARGO_OVERLAYS_PATH` env var. Demo scripts only provide duration/action — overlay content lives in the manifest. Full inline cues are still supported for backward compatibility.
 
+Overlay injection includes a no-op `page.evaluate(() => {})` fence before injecting to flush pending browser renders. Apps with aggressive DOM updates (like sift's table engine) can remove freshly injected elements if they have a render cycle queued from the same tick as `narration.mark()`. The fence adds one CDP round-trip (~1-5ms) but prevents flashing. Fire-and-forget `showOverlay` calls use instance IDs — `removeZone` only removes if the element's instance matches, preventing a previous scene's cleanup from killing a newer overlay in the same zone.
+
 ### Effects (`src/effects.ts`)
 
 `showConfetti(page, opts?)` — non-blocking by default (fire-and-forget safe). Injects a canvas-based confetti animation via `page.evaluate()`. Two spread modes: `burst` (Raycast-style, center-top fan) and `rain` (full-width fall). `emoji: '🎃'` or `emoji: ['🎄', '⭐']` renders emoji characters instead of colored rectangles. Set `wait: true` to block until animation completes. Errors from page/context disposal are swallowed; all other errors surface as warnings.
@@ -86,13 +88,14 @@ Per-scene freeze-frame holds via `post: [{ type: 'freeze', atMs, durationMs }]` 
 
 Background types: `solid` (hex color), `gradient` (CSS `linear-gradient()` string), `image` (file path), `auto` (probes video edge colors via `probeEdgeColors()` in `src/media.ts` — downscales frame to 16x16, runs 2-means clustering to extract dominant color pair).
 
+Frame effect uses a two-phase approach for fast encoding: `generateFramePng()` pre-renders background + transparent rounded-rect hole as a single PNG (~100ms), then export overlays the video onto it with one simple `overlay` filter. ~12x faster than the old per-frame geq + boxblur approach. Falls back to inline filter if PNG generation fails. The PNG uses ffmpeg `geq` on the alpha channel to punch the hole, with escaped commas (`\\,`) for `-vf` parsing. Pad color uses the gradient's first hex color to avoid black gaps at sub-pixel boundaries.
+
 ffmpeg gotchas discovered during implementation:
 - `gradients` source filter rejects negative coordinate values — clamp `x0/y0/x1/y1` to `[0, dimension]`
 - `color` and `gradients` sources need `d=1,loop=-1:1:0` to produce infinite frames — without loop, `overlay` stops when background source ends (black strip artifact)
 - Rounded corners use `geq` alpha mask with separate straight-edge vs corner-arc logic — naive `hypot` on all edges causes background bleed along straight sides
 - Shadow layer must be scaled down (inset) before `boxblur` to prevent blur bleeding past rounded corners
 - All `overlay` compositing uses `shortest=1` so output stops when the video stream ends
-- Frame preserves aspect ratio via `force_original_aspect_ratio=decrease` + `pad` — prevents distortion on non-matching sources
 
 ### Contrast-Adaptive Sharpening (`src/export.ts`)
 
@@ -175,6 +178,7 @@ Custom `test` fixture extends Playwright's `test` with a `narration` fixture tha
 - `narration.durationFor(scene, opts?)` computes wait times from TTS clip lengths (replaces hardcoded ms values in demo scripts)
 - Pipeline writes `.scene-durations.json` after TTS → env var `ARGO_SCENE_DURATIONS_PATH` passes it to Playwright subprocess → fixture loads into `NarrationTimeline`
 - Formula: `clipMs * multiplier + leadInMs + leadOutMs`, clamped to [minMs, maxMs] (defaults: 200ms lead-in, 400ms lead-out, 2200–30000ms range, 5000ms fallback). Logs a warning on first fallback when no scene durations are loaded.
+- `narration.sceneDuration(scene, opts?)` returns the full TTS-based duration without subtracting elapsed time. Use for overlay display durations where a stable, non-decreasing value is needed. `durationFor()` returns remaining time from "now" and can decrease to 0 if called late.
 
 ## Env Vars Bridging Config to Playwright
 
@@ -250,6 +254,8 @@ Custom `test` fixture extends Playwright's `test` with a `narration` fixture tha
 - MusicGen WebGPU dtype: use `q4` (not `fp32`) to avoid ~15GB Chrome RAM usage. `q4` weights are ~450MB total.
 - `tblend` motion blur without time-gating has no visible effect — static frames blended with identical static frames produce no change. Always pass camera moves to `buildMotionBlurFilter()` for `enable` expression generation.
 - ffmpeg `gradients` source filter rejects negative `x0/y0/x1/y1` values — angle-to-coordinate conversion can produce negatives for certain angles. Always clamp.
+- `narration.mark()` does sync `appendFileSync` which can trigger app re-renders on the same event loop tick — overlay injection fence mitigates but apps with very aggressive DOM updates may still need manual `waitForTimeout()` after `mark()`.
+- `-shortest` must be skipped when frame PNG overlay is present — PNG has 0 duration and truncates the entire output.
 
 ## Security Invariants
 

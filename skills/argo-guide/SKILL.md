@@ -66,7 +66,8 @@ import { showOverlay, withOverlay } from '@argo-video/cli';
 | API | What it does |
 |-----|-------------|
 | `narration.mark(scene)` | Record timestamp. Every scene in the manifest needs a matching mark. |
-| `narration.durationFor(scene, opts?)` | Compute hold duration from TTS clip length. Use instead of hardcoded `waitForTimeout(ms)`. |
+| `narration.durationFor(scene, opts?)` | Compute hold duration from TTS clip length (remaining time from now). Use instead of hardcoded `waitForTimeout(ms)`. |
+| `narration.sceneDuration(scene, opts?)` | Full scene duration — stable, non-decreasing. Use for overlay display durations. |
 | `showOverlay(page, scene, durationMs)` | Show manifest overlay for N ms, then auto-remove. |
 | `withOverlay(page, scene, action)` | Show manifest overlay during an async action, auto-remove when done. |
 | `demoType(page, selectorOrLocator, text, delay?)` | Character-by-character typing (60ms default). Accepts CSS selector or Playwright Locator. |
