@@ -24,15 +24,16 @@ describe('injectIntoZone', () => {
 
   it('calls page.evaluate with zone ID', async () => {
     await injectIntoZone(page, 'top-left', '<div>Hello</div>', { color: 'red' });
-    expect(page.evaluate).toHaveBeenCalledTimes(1);
-    const [fn, args] = (page.evaluate as any).mock.calls[0];
+    // Two evaluate calls: fence (flush pending renders) + injection
+    expect(page.evaluate).toHaveBeenCalledTimes(2);
+    const [fn, args] = (page.evaluate as any).mock.calls[1];
     expect(typeof fn).toBe('function');
     expect(args[0]).toBe('argo-overlay-top-left');
   });
 
   it('uses bottom-center zone ID correctly', async () => {
     await injectIntoZone(page, 'bottom-center', '<span>text</span>', {});
-    const [, args] = (page.evaluate as any).mock.calls[0];
+    const [, args] = (page.evaluate as any).mock.calls[1];
     expect(args[0]).toBe('argo-overlay-bottom-center');
   });
 });

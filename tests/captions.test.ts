@@ -20,9 +20,10 @@ describe('showCaption', () => {
     const { page, calls } = createMockPage();
     await showCaption(page, 'intro', 'Hello world', 3000);
 
-    expect(page.evaluate).toHaveBeenCalledTimes(2);
+    // 3 evaluate calls: fence + inject + remove
+    expect(page.evaluate).toHaveBeenCalledTimes(3);
     expect(page.waitForTimeout).toHaveBeenCalledWith(3000);
-    expect(calls).toEqual(['evaluate', 'waitForTimeout', 'evaluate']);
+    expect(calls).toEqual(['evaluate', 'evaluate', 'waitForTimeout', 'evaluate']);
   });
 });
 
@@ -55,8 +56,8 @@ describe('withCaption', () => {
 
     await withCaption(page, 'demo', 'Doing stuff', action);
 
-    // inject, action, remove
-    expect(order).toEqual(['evaluate', 'action', 'evaluate']);
+    // fence, inject, action, remove
+    expect(order).toEqual(['evaluate', 'evaluate', 'action', 'evaluate']);
   });
 
   it('hides caption even if action throws', async () => {
@@ -70,7 +71,7 @@ describe('withCaption', () => {
       withCaption(page, 'demo', 'Failing', failingAction),
     ).rejects.toThrow('boom');
 
-    // Should still have called evaluate twice: inject + remove
-    expect(page.evaluate).toHaveBeenCalledTimes(2);
+    // fence + inject + remove
+    expect(page.evaluate).toHaveBeenCalledTimes(3);
   });
 });

@@ -166,6 +166,15 @@ export class NarrationTimeline {
    * from "now", not the full scene duration. It also accounts for any audio
    * backlog caused by earlier clips running long.
    */
+  /**
+   * Compute a hold duration for a scene based on its TTS clip length.
+   * Use for overlay durations and passive reading time — not for
+   * page loads, click completion, or selector readiness.
+   *
+   * When the scene has already been marked, this returns the remaining wait
+   * from "now", not the full scene duration. It also accounts for any audio
+   * backlog caused by earlier clips running long.
+   */
   durationFor(scene: string, options?: SceneDurationOptions): number {
     const baseDurationMs = this.getBaseDuration(scene, options);
     if (this.startTime === null) return baseDurationMs;
@@ -184,5 +193,15 @@ export class NarrationTimeline {
     const nowMs = Math.max(0, Date.now() - this.startTime);
 
     return Math.max(0, Math.ceil(desiredEndMs - nowMs));
+  }
+
+  /**
+   * Return the full scene duration based on TTS clip length — NOT time-aware.
+   * Unlike `durationFor()` which subtracts elapsed time, this always returns
+   * the same value regardless of when it's called. Use for overlay display
+   * durations and anywhere you need a stable, non-decreasing value.
+   */
+  sceneDuration(scene: string, options?: SceneDurationOptions): number {
+    return this.getBaseDuration(scene, options);
   }
 }

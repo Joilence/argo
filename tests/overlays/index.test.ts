@@ -19,13 +19,15 @@ describe('showOverlay', () => {
 
   it('injects overlay and removes after duration', async () => {
     await showOverlay(page, 'intro', { type: 'lower-third', text: 'Hello' }, 2000);
-    expect(page.evaluate).toHaveBeenCalledTimes(2);
+    // 3 evaluate calls: fence + inject + remove
+    expect(page.evaluate).toHaveBeenCalledTimes(3);
     expect(page.waitForTimeout).toHaveBeenCalledWith(2000);
   });
 
   it('defaults to bottom-center zone', async () => {
     await showOverlay(page, 'intro', { type: 'lower-third', text: 'Hi' }, 1000);
-    const [, args] = (page.evaluate as any).mock.calls[0];
+    // calls[0] = fence, calls[1] = inject
+    const [, args] = (page.evaluate as any).mock.calls[1];
     expect(args[0]).toContain('bottom-center');
   });
 
@@ -33,7 +35,7 @@ describe('showOverlay', () => {
     await showOverlay(page, 'intro', {
       type: 'headline-card', title: 'Title', placement: 'top-left',
     }, 1000);
-    const [, args] = (page.evaluate as any).mock.calls[0];
+    const [, args] = (page.evaluate as any).mock.calls[1];
     expect(args[0]).toContain('top-left');
   });
 });
@@ -63,7 +65,8 @@ describe('withOverlay', () => {
       actionRan = true;
     });
     expect(actionRan).toBe(true);
-    expect(page.evaluate).toHaveBeenCalledTimes(2);
+    // 3 evaluate calls: fence + inject + remove
+    expect(page.evaluate).toHaveBeenCalledTimes(3);
   });
 
   it('removes overlay even if action throws', async () => {
@@ -72,7 +75,7 @@ describe('withOverlay', () => {
         throw new Error('boom');
       }),
     ).rejects.toThrow('boom');
-    expect(page.evaluate).toHaveBeenCalledTimes(2);
+    expect(page.evaluate).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -166,16 +169,16 @@ describe('manifest-based resolution', () => {
   describe('showOverlay manifest-only', () => {
     it('resolves cue from manifest with duration-only call', async () => {
       await showOverlay(page, 'hero', 2000);
-      expect(page.evaluate).toHaveBeenCalledTimes(2);
+      expect(page.evaluate).toHaveBeenCalledTimes(3);
       expect(page.waitForTimeout).toHaveBeenCalledWith(2000);
-      // Should use center placement from manifest
-      const [, args] = (page.evaluate as any).mock.calls[0];
+      // calls[0] = fence, calls[1] = inject
+      const [, args] = (page.evaluate as any).mock.calls[1];
       expect(args[0]).toContain('center');
     });
 
     it('resolves cue from manifest with overrides', async () => {
       await showOverlay(page, 'features', { placement: 'top-right' }, 1500);
-      const [, args] = (page.evaluate as any).mock.calls[0];
+      const [, args] = (page.evaluate as any).mock.calls[1];
       expect(args[0]).toContain('top-right');
     });
 
@@ -191,8 +194,8 @@ describe('manifest-based resolution', () => {
       let ran = false;
       await withOverlay(page, 'hero', async () => { ran = true; });
       expect(ran).toBe(true);
-      expect(page.evaluate).toHaveBeenCalledTimes(2);
-      const [, args] = (page.evaluate as any).mock.calls[0];
+      expect(page.evaluate).toHaveBeenCalledTimes(3);
+      const [, args] = (page.evaluate as any).mock.calls[1];
       expect(args[0]).toContain('center');
     });
 
@@ -200,7 +203,7 @@ describe('manifest-based resolution', () => {
       let ran = false;
       await withOverlay(page, 'features', { placement: 'top-left' }, async () => { ran = true; });
       expect(ran).toBe(true);
-      const [, args] = (page.evaluate as any).mock.calls[0];
+      const [, args] = (page.evaluate as any).mock.calls[1];
       expect(args[0]).toContain('top-left');
     });
 
