@@ -22,6 +22,7 @@ import { generateChapterMetadata } from './chapters.js';
 import { exportVideo, checkFfmpeg } from './export.js';
 import { applySpeedRampToTimeline } from './speed-ramp.js';
 import { shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
+import { generateFramePng } from './frame.js';
 import { resolveFreezes, adjustPlacementsForFreezes, totalFreezeDurationMs, type FreezeSpec } from './freeze.js';
 import { buildOverlayPngsForImport, isImportedVideo, type RenderedOverlayPng } from './overlays/render-to-png.js';
 import { detectVideoTheme, getVideoDurationMs } from './media.js';
@@ -105,6 +106,8 @@ interface PreviewData {
     include: boolean;
     volume: number;
   };
+  /** Current frame config — editable in preview UI. */
+  frameConfig: import('./config.js').FrameConfig | null;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -439,6 +442,7 @@ function loadPreviewData(
     cameraMoves,
     cursorTelemetry,
     headTrimMs,
+    frameConfig: exportConfig?.frame ?? null,
   };
 }
 
@@ -631,6 +635,20 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
         const clips = listClips(argoDir, demoName);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(clips));
+        return;
+      }
+
+      // Update frame config for live preview + re-export
+      if (url === '/api/frame-config' && req.method === 'POST') {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+        if (!options.exportConfig) {
+          (options as any).exportConfig = {};
+        }
+        options.exportConfig!.frame = body as import('./config.js').FrameConfig;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
         return;
       }
 
@@ -957,6 +975,16 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             deviceScaleFactor: ec?.deviceScaleFactor,
           });
 
+          // Pre-render frame PNG if frame config is set (matches pipeline flow)
+          let framePngPath: string | undefined;
+          if (ec?.frame && (ec.frame.padding ?? 40) > 0) {
+            const outW = ec.outputWidth ?? 1920;
+            const outH = ec.outputHeight ?? 1080;
+            const pngPath = join(argoDir, demoName, 'frame.png');
+            const pngResult = generateFramePng(pngPath, outW, outH, ec.frame);
+            if (pngResult) framePngPath = pngResult;
+          }
+
           // Export — use full config so output matches argo pipeline
           await exportVideo({
             demoName,
@@ -983,6 +1011,7 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             watermark: ec?.watermark,
             sharpen: ec?.sharpen,
             frame: ec?.frame,
+            framePngPath,
             motionBlur: ec?.motionBlur,
             freezeSpecs: previewResolvedFreezes.length > 0 ? previewResolvedFreezes : undefined,
             overlayPngs,
@@ -1820,6 +1849,112 @@ const PREVIEW_HTML = `<!DOCTYPE html>
     min-height: 16px;
   }
 
+  /* Frame & Background panel */
+  .frame-panel {
+    border-top: 1px solid var(--border);
+    padding: 0;
+  }
+  .frame-panel-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .frame-panel-header:hover { color: var(--text); }
+  .frame-panel-header .expand-icon {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-dim);
+    transition: transform var(--transition);
+  }
+  .frame-panel.expanded .frame-panel-header .expand-icon { transform: rotate(90deg); }
+  .frame-panel-body {
+    display: none;
+    padding: 0 16px 16px;
+  }
+  .frame-panel.expanded .frame-panel-body { display: block; }
+  .frame-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .frame-row label { min-width: 80px; flex-shrink: 0; }
+  .frame-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .frame-row .frame-value { min-width: 36px; text-align: right; font-family: var(--mono); font-size: 11px; }
+  .frame-bg-type {
+    width: 100%;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: var(--sans);
+    color: var(--text);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+  }
+  .frame-color-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .frame-color-row label { font-size: 12px; color: var(--text-muted); min-width: 80px; }
+  .frame-color-row input[type="color"] {
+    width: 32px; height: 24px; border: 1px solid var(--border);
+    border-radius: 4px; padding: 0; cursor: pointer; background: none;
+  }
+  .frame-color-row input[type="text"] {
+    flex: 1; padding: 4px 8px; font-size: 12px; font-family: var(--mono);
+    color: var(--text); background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .frame-gradient-row { margin-bottom: 10px; }
+  .frame-gradient-row label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+  .frame-gradient-stops {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .frame-gradient-stops input[type="color"] {
+    width: 32px; height: 24px; border: 1px solid var(--border);
+    border-radius: 4px; padding: 0; cursor: pointer; background: none;
+  }
+  .frame-gradient-stops input[type="number"] {
+    width: 56px; padding: 4px 6px; font-size: 12px; font-family: var(--mono);
+    color: var(--text); background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .frame-preview-enabled {
+    font-size: 11px;
+    color: var(--accent);
+    margin-top: 4px;
+  }
+
+  /* Live frame preview overlay on video container */
+  .video-container.frame-preview {
+    background: transparent;
+  }
+  .frame-preview-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .video-container.frame-preview video {
+    border-radius: var(--frame-radius, 0px);
+    box-shadow: var(--frame-shadow, none);
+    z-index: 1;
+  }
+
   .scene-card {
     padding: 14px 16px;
     border-bottom: 1px solid var(--border);
@@ -2265,6 +2400,52 @@ const PREVIEW_HTML = `<!DOCTYPE html>
         <div class="music-help" id="music-help">Preview export mixes background music at a fixed low level. No re-record needed.</div>
         <button class="music-save-btn" id="music-save-btn">Use as BGM</button>
         <div class="music-status" id="music-status"></div>
+      </div>
+    </div>
+    <div class="frame-panel" id="frame-panel">
+      <div class="frame-panel-header" id="frame-panel-header">
+        Frame & Background
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="frame-panel-body">
+        <div class="frame-row">
+          <label for="frame-padding">Padding</label>
+          <input type="range" id="frame-padding" min="0" max="120" value="40" step="2">
+          <span class="frame-value" id="frame-padding-value">40</span>
+        </div>
+        <div class="frame-row">
+          <label for="frame-radius">Radius</label>
+          <input type="range" id="frame-radius" min="0" max="40" value="12" step="1">
+          <span class="frame-value" id="frame-radius-value">12</span>
+        </div>
+        <div class="frame-row">
+          <label for="frame-shadow">Shadow</label>
+          <input type="range" id="frame-shadow" min="0" max="1" value="0.5" step="0.05">
+          <span class="frame-value" id="frame-shadow-value">0.5</span>
+        </div>
+        <div class="frame-row">
+          <label>Background</label>
+          <select class="frame-bg-type" id="frame-bg-type">
+            <option value="solid">Solid Color</option>
+            <option value="gradient">Gradient</option>
+          </select>
+        </div>
+        <div class="frame-color-row" id="frame-solid-row">
+          <label>Color</label>
+          <input type="color" id="frame-color-picker" value="#000000">
+          <input type="text" id="frame-color-hex" value="#000000" maxlength="9" placeholder="#000000">
+        </div>
+        <div class="frame-gradient-row" id="frame-gradient-row" style="display:none">
+          <label>Gradient (angle + two stops)</label>
+          <div class="frame-gradient-stops">
+            <input type="color" id="frame-grad-c0" value="#667eea">
+            <span style="font-size:11px;color:var(--text-dim)">to</span>
+            <input type="color" id="frame-grad-c1" value="#764ba2">
+            <input type="number" id="frame-grad-angle" value="135" min="0" max="360" step="5" title="Angle (degrees)">
+            <span style="font-size:11px;color:var(--text-dim)">&deg;</span>
+          </div>
+        </div>
+        <div class="frame-preview-enabled" id="frame-preview-status"></div>
       </div>
     </div>
   </div>
@@ -4757,6 +4938,200 @@ if (DATA.pipelineMeta) {
       musicSaveBtn.disabled = false;
     }
   });
+})();
+
+// ─── Frame & Background Panel ─────────────────────────────────────────────
+(function initFramePanel() {
+  const panel = document.getElementById('frame-panel');
+  const header = document.getElementById('frame-panel-header');
+  const paddingSlider = document.getElementById('frame-padding');
+  const paddingValue = document.getElementById('frame-padding-value');
+  const radiusSlider = document.getElementById('frame-radius');
+  const radiusValue = document.getElementById('frame-radius-value');
+  const shadowSlider = document.getElementById('frame-shadow');
+  const shadowValue = document.getElementById('frame-shadow-value');
+  const bgType = document.getElementById('frame-bg-type');
+  const solidRow = document.getElementById('frame-solid-row');
+  const gradientRow = document.getElementById('frame-gradient-row');
+  const colorPicker = document.getElementById('frame-color-picker');
+  const colorHex = document.getElementById('frame-color-hex');
+  const gradC0 = document.getElementById('frame-grad-c0');
+  const gradC1 = document.getElementById('frame-grad-c1');
+  const gradAngle = document.getElementById('frame-grad-angle');
+  const statusEl = document.getElementById('frame-preview-status');
+  const videoContainer = document.querySelector('.video-container');
+
+  // Load initial config from DATA
+  const fc = DATA.frameConfig || {};
+  paddingSlider.value = String(fc.padding ?? 40);
+  paddingValue.textContent = paddingSlider.value;
+  radiusSlider.value = String(fc.borderRadius ?? 12);
+  radiusValue.textContent = radiusSlider.value;
+  shadowSlider.value = String(fc.shadow ?? 0.5);
+  shadowValue.textContent = shadowSlider.value;
+
+  const bg = fc.background || { type: 'solid', value: '#000000' };
+  if (bg.type === 'gradient') {
+    bgType.value = 'gradient';
+    solidRow.style.display = 'none';
+    gradientRow.style.display = 'block';
+    // Parse gradient colors if possible
+    const colors = (bg.value || '').match(/#[0-9a-fA-F]{3,8}/g);
+    if (colors && colors[0]) gradC0.value = colors[0];
+    if (colors && colors[1]) gradC1.value = colors[1];
+    const angleMatch = (bg.value || '').match(/(\\d+)deg/);
+    if (angleMatch) gradAngle.value = angleMatch[1];
+  } else {
+    bgType.value = 'solid';
+    const color = bg.value || '#000000';
+    colorPicker.value = color.length === 4 ? color + color.slice(1) : color;
+    colorHex.value = color;
+  }
+
+  // Toggle expand
+  header.addEventListener('click', () => panel.classList.toggle('expanded'));
+
+  // If frame config exists, auto-expand
+  if (fc.padding > 0 || fc.borderRadius > 0) panel.classList.add('expanded');
+
+  let saveTimer = null;
+  function scheduleFrameSave() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(persistFrameConfig, 500);
+  }
+
+  function getFrameConfig() {
+    const padding = Number(paddingSlider.value);
+    const borderRadius = Number(radiusSlider.value);
+    const shadow = Number(shadowSlider.value);
+    let background;
+    if (bgType.value === 'gradient') {
+      const angle = Number(gradAngle.value) || 135;
+      background = {
+        type: 'gradient',
+        value: 'linear-gradient(' + angle + 'deg, ' + gradC0.value + ', ' + gradC1.value + ')',
+      };
+    } else {
+      background = { type: 'solid', value: colorHex.value || '#000000' };
+    }
+    return { padding, borderRadius, shadow, background };
+  }
+
+  function persistFrameConfig() {
+    const config = getFrameConfig();
+    fetch('/api/frame-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    }).catch(() => {});
+  }
+
+  function updateLivePreview() {
+    const padding = Number(paddingSlider.value);
+    const borderRadius = Number(radiusSlider.value);
+    const shadow = Number(shadowSlider.value);
+
+    if (padding <= 0) {
+      videoContainer.classList.remove('frame-preview');
+      // Remove background overlay if exists
+      const existing = videoContainer.querySelector('.frame-preview-bg');
+      if (existing) existing.remove();
+      videoContainer.style.removeProperty('--frame-radius');
+      videoContainer.style.removeProperty('--frame-shadow');
+      video.style.removeProperty('max-width');
+      video.style.removeProperty('max-height');
+      statusEl.textContent = '';
+      return;
+    }
+
+    videoContainer.classList.add('frame-preview');
+
+    // Compute relative padding as a percentage of the container
+    // We approximate the video frame look by shrinking the video and adding border/bg
+    const containerRect = videoContainer.getBoundingClientRect();
+    const padPctW = (padding / (DATA.pipelineMeta?.export?.outputWidth || 1920)) * 100;
+    const padPctH = (padding / (DATA.pipelineMeta?.export?.outputHeight || 1080)) * 100;
+
+    video.style.maxWidth = (100 - 2 * padPctW) + '%';
+    video.style.maxHeight = (100 - 2 * padPctH) + '%';
+    videoContainer.style.setProperty('--frame-radius', borderRadius + 'px');
+
+    const shadowBlur = Math.round(shadow * 40);
+    const shadowSpread = Math.round(shadow * 8);
+    const shadowAlpha = Math.min(shadow * 0.8, 0.7).toFixed(2);
+    if (shadow > 0) {
+      videoContainer.style.setProperty('--frame-shadow', '0 ' + Math.round(shadow * 10) + 'px ' + shadowBlur + 'px ' + shadowSpread + 'px rgba(0,0,0,' + shadowAlpha + ')');
+    } else {
+      videoContainer.style.setProperty('--frame-shadow', 'none');
+    }
+
+    // Background
+    let bgCss;
+    if (bgType.value === 'gradient') {
+      const angle = Number(gradAngle.value) || 135;
+      bgCss = 'linear-gradient(' + angle + 'deg, ' + gradC0.value + ', ' + gradC1.value + ')';
+    } else {
+      bgCss = colorHex.value || '#000000';
+    }
+
+    let bgEl = videoContainer.querySelector('.frame-preview-bg');
+    if (!bgEl) {
+      bgEl = document.createElement('div');
+      bgEl.className = 'frame-preview-bg';
+      videoContainer.insertBefore(bgEl, videoContainer.firstChild);
+    }
+    bgEl.style.background = bgCss;
+
+    statusEl.textContent = 'Live preview — export to apply to video';
+  }
+
+  // Wire up controls
+  paddingSlider.addEventListener('input', () => {
+    paddingValue.textContent = paddingSlider.value;
+    updateLivePreview();
+    scheduleFrameSave();
+  });
+  radiusSlider.addEventListener('input', () => {
+    radiusValue.textContent = radiusSlider.value;
+    updateLivePreview();
+    scheduleFrameSave();
+  });
+  shadowSlider.addEventListener('input', () => {
+    shadowValue.textContent = Number(shadowSlider.value).toFixed(2);
+    updateLivePreview();
+    scheduleFrameSave();
+  });
+
+  bgType.addEventListener('change', () => {
+    if (bgType.value === 'gradient') {
+      solidRow.style.display = 'none';
+      gradientRow.style.display = 'block';
+    } else {
+      solidRow.style.display = 'flex';
+      gradientRow.style.display = 'none';
+    }
+    updateLivePreview();
+    scheduleFrameSave();
+  });
+
+  colorPicker.addEventListener('input', () => {
+    colorHex.value = colorPicker.value;
+    updateLivePreview();
+    scheduleFrameSave();
+  });
+  colorHex.addEventListener('input', () => {
+    if (/^#[0-9a-fA-F]{6}$/.test(colorHex.value)) {
+      colorPicker.value = colorHex.value;
+    }
+    updateLivePreview();
+    scheduleFrameSave();
+  });
+  gradC0.addEventListener('input', () => { updateLivePreview(); scheduleFrameSave(); });
+  gradC1.addEventListener('input', () => { updateLivePreview(); scheduleFrameSave(); });
+  gradAngle.addEventListener('input', () => { updateLivePreview(); scheduleFrameSave(); });
+
+  // Initial render
+  updateLivePreview();
 })();
 
 // ─── Init ──────────────────────────────────────────────────────────────────
