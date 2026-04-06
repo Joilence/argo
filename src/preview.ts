@@ -25,7 +25,7 @@ import { shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-mo
 import { generateFramePng } from './frame.js';
 import { resolveFreezes, adjustPlacementsForFreezes, totalFreezeDurationMs, type FreezeSpec } from './freeze.js';
 import { buildOverlayPngsForImport, isImportedVideo, type RenderedOverlayPng } from './overlays/render-to-png.js';
-import { detectVideoTheme, getVideoDurationMs } from './media.js';
+import { detectVideoTheme, getVideoDurationMs, probeEdgeColors } from './media.js';
 import type { BackgroundTheme } from './overlays/zones.js';
 
 export interface PreviewExportConfig {
@@ -442,7 +442,9 @@ function loadPreviewData(
     cameraMoves,
     cursorTelemetry,
     headTrimMs,
-    frameConfig: exportConfig?.frame ?? null,
+    frameConfig: exportConfig?.frame
+      ?? readJsonFile<import('./config.js').FrameConfig>(join(demoDir, 'frame-config.json'), null as any)
+      ?? null,
   };
 }
 
@@ -638,7 +640,7 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
         return;
       }
 
-      // Update frame config for live preview + re-export
+      // Update frame config for live preview + re-export, persist to sidecar
       if (url === '/api/frame-config' && req.method === 'POST') {
         const chunks: Buffer[] = [];
         for await (const chunk of req) chunks.push(chunk as Buffer);
@@ -647,8 +649,25 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
           (options as any).exportConfig = {};
         }
         options.exportConfig!.frame = body as import('./config.js').FrameConfig;
+        // Persist to sidecar so config survives server restarts
+        const demoDir = join(argoDir, demoName);
+        if (!existsSync(demoDir)) mkdirSync(demoDir, { recursive: true });
+        writeFileSync(join(demoDir, 'frame-config.json'), JSON.stringify(body, null, 2) + '\n', 'utf-8');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+
+      // Probe video edge colors for "auto" background
+      if (url === '/api/probe-auto-bg' && req.method === 'GET') {
+        if (!videoPath || !existsSync(videoPath)) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No video available to probe' }));
+          return;
+        }
+        const colors = probeEdgeColors(videoPath);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(colors ?? { color0: '#1a1a2e', color1: '#16213e' }));
         return;
       }
 
@@ -1887,7 +1906,8 @@ const PREVIEW_HTML = `<!DOCTYPE html>
     font-size: 12px;
     color: var(--text-muted);
   }
-  .frame-row label { min-width: 80px; flex-shrink: 0; }
+  .frame-row label, .frame-color-row label { min-width: 80px; flex-shrink: 0; cursor: help; }
+  .frame-row label[title]:hover, .frame-color-row label[title]:hover { text-decoration: underline dotted; text-underline-offset: 2px; }
   .frame-row input[type="range"] { flex: 1; accent-color: var(--accent); }
   .frame-row .frame-value { min-width: 36px; text-align: right; font-family: var(--mono); font-size: 11px; }
   .frame-bg-type {
@@ -1932,6 +1952,12 @@ const PREVIEW_HTML = `<!DOCTYPE html>
     width: 56px; padding: 4px 6px; font-size: 12px; font-family: var(--mono);
     color: var(--text); background: var(--surface2); border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+  .frame-auto-swatch {
+    display: inline-block;
+    width: 24px; height: 24px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
   }
   .frame-preview-enabled {
     font-size: 11px;
@@ -2409,25 +2435,32 @@ const PREVIEW_HTML = `<!DOCTYPE html>
       </div>
       <div class="frame-panel-body">
         <div class="frame-row">
-          <label for="frame-padding">Padding</label>
+          <label for="frame-padding" title="Space between the video and the frame edge (px)">Padding</label>
           <input type="range" id="frame-padding" min="0" max="120" value="40" step="2">
           <span class="frame-value" id="frame-padding-value">40</span>
         </div>
         <div class="frame-row">
-          <label for="frame-radius">Radius</label>
+          <label for="frame-radius" title="Corner rounding for the video window (px)">Radius</label>
           <input type="range" id="frame-radius" min="0" max="40" value="12" step="1">
           <span class="frame-value" id="frame-radius-value">12</span>
         </div>
         <div class="frame-row">
-          <label for="frame-shadow">Shadow</label>
+          <label for="frame-shadow" title="Drop shadow intensity behind the video (0 = none, 1 = max)">Shadow</label>
           <input type="range" id="frame-shadow" min="0" max="1" value="0.5" step="0.05">
           <span class="frame-value" id="frame-shadow-value">0.5</span>
         </div>
+        <div class="frame-color-row" id="frame-shadow-color-row">
+          <label title="Color of the drop shadow">Shadow Color</label>
+          <input type="color" id="frame-shadow-color-picker" value="#000000">
+          <input type="text" id="frame-shadow-color-hex" value="#000000" maxlength="9" placeholder="#000000">
+        </div>
         <div class="frame-row">
-          <label>Background</label>
+          <label title="Background fill behind the framed video">Background</label>
           <select class="frame-bg-type" id="frame-bg-type">
             <option value="solid">Solid Color</option>
             <option value="gradient">Gradient</option>
+            <option value="auto">Auto (from video)</option>
+            <option value="image">Image</option>
           </select>
         </div>
         <div class="frame-color-row" id="frame-solid-row">
@@ -2444,6 +2477,17 @@ const PREVIEW_HTML = `<!DOCTYPE html>
             <input type="number" id="frame-grad-angle" value="135" min="0" max="360" step="5" title="Angle (degrees)">
             <span style="font-size:11px;color:var(--text-dim)">&deg;</span>
           </div>
+        </div>
+        <div class="frame-color-row" id="frame-auto-row" style="display:none">
+          <label>Probed</label>
+          <span id="frame-auto-swatch-0" class="frame-auto-swatch"></span>
+          <span style="font-size:11px;color:var(--text-dim)">to</span>
+          <span id="frame-auto-swatch-1" class="frame-auto-swatch"></span>
+          <span id="frame-auto-colors" style="font-size:11px;font-family:var(--mono);color:var(--text-muted)"></span>
+        </div>
+        <div class="frame-color-row" id="frame-image-row" style="display:none">
+          <label>Image Path</label>
+          <input type="text" id="frame-image-path" placeholder="assets/bg.png" style="flex:1;padding:4px 8px;font-size:12px;font-family:var(--mono);color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);">
         </div>
         <div class="frame-preview-enabled" id="frame-preview-status"></div>
       </div>
@@ -4950,16 +4994,25 @@ if (DATA.pipelineMeta) {
   const radiusValue = document.getElementById('frame-radius-value');
   const shadowSlider = document.getElementById('frame-shadow');
   const shadowValue = document.getElementById('frame-shadow-value');
+  const shadowColorPicker = document.getElementById('frame-shadow-color-picker');
+  const shadowColorHex = document.getElementById('frame-shadow-color-hex');
   const bgType = document.getElementById('frame-bg-type');
   const solidRow = document.getElementById('frame-solid-row');
   const gradientRow = document.getElementById('frame-gradient-row');
+  const autoRow = document.getElementById('frame-auto-row');
+  const imageRow = document.getElementById('frame-image-row');
+  const imagePath = document.getElementById('frame-image-path');
   const colorPicker = document.getElementById('frame-color-picker');
   const colorHex = document.getElementById('frame-color-hex');
   const gradC0 = document.getElementById('frame-grad-c0');
   const gradC1 = document.getElementById('frame-grad-c1');
   const gradAngle = document.getElementById('frame-grad-angle');
+  const autoSwatch0 = document.getElementById('frame-auto-swatch-0');
+  const autoSwatch1 = document.getElementById('frame-auto-swatch-1');
+  const autoColorsLabel = document.getElementById('frame-auto-colors');
   const statusEl = document.getElementById('frame-preview-status');
   const videoContainer = document.querySelector('.video-container');
+  let autoColors = null; // cached {color0, color1} from probeEdgeColors
 
   // Load initial config from DATA
   const fc = DATA.frameConfig || {};
@@ -4970,23 +5023,37 @@ if (DATA.pipelineMeta) {
   shadowSlider.value = String(fc.shadow ?? 0.5);
   shadowValue.textContent = shadowSlider.value;
 
+  // Shadow color
+  const sc = fc.shadowColor || '#000000';
+  shadowColorPicker.value = sc.length === 4 ? sc + sc.slice(1) : sc;
+  shadowColorHex.value = sc;
+
   const bg = fc.background || { type: 'solid', value: '#000000' };
+  function showBgRowFor(type) {
+    solidRow.style.display = type === 'solid' ? 'flex' : 'none';
+    gradientRow.style.display = type === 'gradient' ? 'block' : 'none';
+    autoRow.style.display = type === 'auto' ? 'flex' : 'none';
+    imageRow.style.display = type === 'image' ? 'flex' : 'none';
+  }
   if (bg.type === 'gradient') {
     bgType.value = 'gradient';
-    solidRow.style.display = 'none';
-    gradientRow.style.display = 'block';
-    // Parse gradient colors if possible
     const colors = (bg.value || '').match(/#[0-9a-fA-F]{3,8}/g);
     if (colors && colors[0]) gradC0.value = colors[0];
     if (colors && colors[1]) gradC1.value = colors[1];
     const angleMatch = (bg.value || '').match(/(\\d+)deg/);
     if (angleMatch) gradAngle.value = angleMatch[1];
+  } else if (bg.type === 'auto') {
+    bgType.value = 'auto';
+  } else if (bg.type === 'image') {
+    bgType.value = 'image';
+    imagePath.value = bg.value || '';
   } else {
     bgType.value = 'solid';
     const color = bg.value || '#000000';
     colorPicker.value = color.length === 4 ? color + color.slice(1) : color;
     colorHex.value = color;
   }
+  showBgRowFor(bgType.value);
 
   // Toggle expand
   header.addEventListener('click', () => panel.classList.toggle('expanded'));
@@ -5004,6 +5071,7 @@ if (DATA.pipelineMeta) {
     const padding = Number(paddingSlider.value);
     const borderRadius = Number(radiusSlider.value);
     const shadow = Number(shadowSlider.value);
+    const shadowColor = shadowColorHex.value || '#000000';
     let background;
     if (bgType.value === 'gradient') {
       const angle = Number(gradAngle.value) || 135;
@@ -5011,10 +5079,14 @@ if (DATA.pipelineMeta) {
         type: 'gradient',
         value: 'linear-gradient(' + angle + 'deg, ' + gradC0.value + ', ' + gradC1.value + ')',
       };
+    } else if (bgType.value === 'auto') {
+      background = { type: 'auto' };
+    } else if (bgType.value === 'image') {
+      background = { type: 'image', value: imagePath.value || '' };
     } else {
       background = { type: 'solid', value: colorHex.value || '#000000' };
     }
-    return { padding, borderRadius, shadow, background };
+    return { padding, borderRadius, shadow, shadowColor, background };
   }
 
   function persistFrameConfig() {
@@ -5056,11 +5128,14 @@ if (DATA.pipelineMeta) {
     video.style.maxHeight = (100 - 2 * padPctH) + '%';
     videoContainer.style.setProperty('--frame-radius', borderRadius + 'px');
 
+    // Shadow with custom color
     const shadowBlur = Math.round(shadow * 40);
     const shadowSpread = Math.round(shadow * 8);
     const shadowAlpha = Math.min(shadow * 0.8, 0.7).toFixed(2);
     if (shadow > 0) {
-      videoContainer.style.setProperty('--frame-shadow', '0 ' + Math.round(shadow * 10) + 'px ' + shadowBlur + 'px ' + shadowSpread + 'px rgba(0,0,0,' + shadowAlpha + ')');
+      const sc = shadowColorHex.value || '#000000';
+      const r = parseInt(sc.slice(1,3), 16), g = parseInt(sc.slice(3,5), 16), b = parseInt(sc.slice(5,7), 16);
+      videoContainer.style.setProperty('--frame-shadow', '0 ' + Math.round(shadow * 10) + 'px ' + shadowBlur + 'px ' + shadowSpread + 'px rgba(' + r + ',' + g + ',' + b + ',' + shadowAlpha + ')');
     } else {
       videoContainer.style.setProperty('--frame-shadow', 'none');
     }
@@ -5070,6 +5145,12 @@ if (DATA.pipelineMeta) {
     if (bgType.value === 'gradient') {
       const angle = Number(gradAngle.value) || 135;
       bgCss = 'linear-gradient(' + angle + 'deg, ' + gradC0.value + ', ' + gradC1.value + ')';
+    } else if (bgType.value === 'auto' && autoColors) {
+      bgCss = 'linear-gradient(135deg, ' + autoColors.color0 + ', ' + autoColors.color1 + ')';
+    } else if (bgType.value === 'auto') {
+      bgCss = '#1a1a2e'; // placeholder until probe returns
+    } else if (bgType.value === 'image') {
+      bgCss = imagePath.value ? 'url(/api/local-file?path=' + encodeURIComponent(imagePath.value) + ')' : '#1a1a2e';
     } else {
       bgCss = colorHex.value || '#000000';
     }
@@ -5102,18 +5183,40 @@ if (DATA.pipelineMeta) {
     scheduleFrameSave();
   });
 
+  function fetchAutoColors() {
+    fetch('/api/probe-auto-bg').then(r => r.json()).then(data => {
+      autoColors = data;
+      autoSwatch0.style.background = data.color0;
+      autoSwatch1.style.background = data.color1;
+      autoColorsLabel.textContent = data.color0 + ' \u2192 ' + data.color1;
+      updateLivePreview();
+    }).catch(() => {
+      autoColorsLabel.textContent = 'probe failed';
+    });
+  }
+
   bgType.addEventListener('change', () => {
-    if (bgType.value === 'gradient') {
-      solidRow.style.display = 'none';
-      gradientRow.style.display = 'block';
-    } else {
-      solidRow.style.display = 'flex';
-      gradientRow.style.display = 'none';
-    }
+    showBgRowFor(bgType.value);
+    if (bgType.value === 'auto' && !autoColors) fetchAutoColors();
     updateLivePreview();
     scheduleFrameSave();
   });
 
+  // If auto was the initial bg type, probe immediately
+  if (bgType.value === 'auto') fetchAutoColors();
+
+  shadowColorPicker.addEventListener('input', () => {
+    shadowColorHex.value = shadowColorPicker.value;
+    updateLivePreview();
+    scheduleFrameSave();
+  });
+  shadowColorHex.addEventListener('input', () => {
+    if (/^#[0-9a-fA-F]{6}$/.test(shadowColorHex.value)) {
+      shadowColorPicker.value = shadowColorHex.value;
+    }
+    updateLivePreview();
+    scheduleFrameSave();
+  });
   colorPicker.addEventListener('input', () => {
     colorHex.value = colorPicker.value;
     updateLivePreview();
@@ -5129,6 +5232,7 @@ if (DATA.pipelineMeta) {
   gradC0.addEventListener('input', () => { updateLivePreview(); scheduleFrameSave(); });
   gradC1.addEventListener('input', () => { updateLivePreview(); scheduleFrameSave(); });
   gradAngle.addEventListener('input', () => { updateLivePreview(); scheduleFrameSave(); });
+  imagePath.addEventListener('input', () => { updateLivePreview(); scheduleFrameSave(); });
 
   // Initial render
   updateLivePreview();
