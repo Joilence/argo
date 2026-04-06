@@ -659,13 +659,15 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
       }
 
       // Probe video edge colors for "auto" background
+      // Use raw recording (not exported MP4) to match what exportVideo probes
       if (url === '/api/probe-auto-bg' && req.method === 'GET') {
-        if (!videoPath || !existsSync(videoPath)) {
+        const probePath = rawVideoPath && existsSync(rawVideoPath) ? rawVideoPath : videoPath;
+        if (!probePath || !existsSync(probePath)) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'No video available to probe' }));
           return;
         }
-        const colors = probeEdgeColors(videoPath);
+        const colors = probeEdgeColors(probePath);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(colors ?? { color0: '#1a1a2e', color1: '#16213e' }));
         return;
@@ -1012,15 +1014,22 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             deviceScaleFactor: ec?.deviceScaleFactor,
           });
 
+          // Resolve frame config: sidecar overrides repo config (matches loadPreviewData)
+          const frameConfig = readJsonFile<import('./config.js').FrameConfig>(
+            join(argoDir, demoName, 'frame-config.json'), null as any,
+          ) ?? ec?.frame;
+
           // Pre-render frame PNG if frame config is set (matches pipeline flow)
-          // Skip pre-render for 'auto' background — exportVideo resolves auto
-          // by probing video edge colors, so the PNG would have wrong colors.
+          // Skip pre-render for 'auto' and 'image' backgrounds — generateFramePng
+          // can't handle them; exportVideo resolves auto by probing edge colors,
+          // and buildFrameFilter falls back to inline for image.
           let framePngPath: string | undefined;
-          if (ec?.frame && (ec.frame.padding ?? 40) > 0 && ec.frame.background?.type !== 'auto') {
-            const outW = ec.outputWidth ?? 1920;
-            const outH = ec.outputHeight ?? 1080;
+          const bgType = frameConfig?.background?.type;
+          if (frameConfig && (frameConfig.padding ?? 40) > 0 && bgType !== 'auto' && bgType !== 'image') {
+            const outW = ec?.outputWidth ?? 1920;
+            const outH = ec?.outputHeight ?? 1080;
             const pngPath = join(argoDir, demoName, 'frame.png');
-            const pngResult = generateFramePng(pngPath, outW, outH, ec.frame);
+            const pngResult = generateFramePng(pngPath, outW, outH, frameConfig);
             if (pngResult) framePngPath = pngResult;
           }
 
@@ -1049,7 +1058,7 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             cameraMoves,
             watermark: ec?.watermark,
             sharpen: ec?.sharpen,
-            frame: ec?.frame,
+            frame: frameConfig,
             framePngPath,
             motionBlur: ec?.motionBlur,
             freezeSpecs: previewResolvedFreezes.length > 0 ? previewResolvedFreezes : undefined,
