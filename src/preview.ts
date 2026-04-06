@@ -442,8 +442,8 @@ function loadPreviewData(
     cameraMoves,
     cursorTelemetry,
     headTrimMs,
-    frameConfig: exportConfig?.frame
-      ?? readJsonFile<import('./config.js').FrameConfig>(join(demoDir, 'frame-config.json'), null as any)
+    frameConfig: readJsonFile<import('./config.js').FrameConfig>(join(demoDir, 'frame-config.json'), null as any)
+      ?? exportConfig?.frame
       ?? null,
   };
 }
@@ -668,6 +668,24 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
         const colors = probeEdgeColors(videoPath);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(colors ?? { color0: '#1a1a2e', color1: '#16213e' }));
+        return;
+      }
+
+      // Serve a local image file for frame background preview
+      if (url?.startsWith('/api/local-file') && req.method === 'GET') {
+        const parsed = new URL(req.url ?? '', `http://${req.headers.host}`);
+        const filePath = parsed.searchParams.get('path') ?? '';
+        // Resolve relative to cwd (where argo.config lives)
+        const resolved = filePath.startsWith('/') ? filePath : join(process.cwd(), filePath);
+        if (!filePath || !existsSync(resolved)) {
+          res.writeHead(404);
+          res.end('Not found');
+          return;
+        }
+        const ext = resolved.slice(resolved.lastIndexOf('.')).toLowerCase();
+        const mime = MIME_TYPES[ext] || 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': mime });
+        createReadStream(resolved).pipe(res);
         return;
       }
 
@@ -995,8 +1013,10 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
           });
 
           // Pre-render frame PNG if frame config is set (matches pipeline flow)
+          // Skip pre-render for 'auto' background — exportVideo resolves auto
+          // by probing video edge colors, so the PNG would have wrong colors.
           let framePngPath: string | undefined;
-          if (ec?.frame && (ec.frame.padding ?? 40) > 0) {
+          if (ec?.frame && (ec.frame.padding ?? 40) > 0 && ec.frame.background?.type !== 'auto') {
             const outW = ec.outputWidth ?? 1920;
             const outH = ec.outputHeight ?? 1080;
             const pngPath = join(argoDir, demoName, 'frame.png');
