@@ -107,7 +107,7 @@ ffmpeg gotchas discovered during implementation:
 
 ### Per-Scene Playback Speed
 
-`playbackSpeed: 0.5` in `.scenes.json` controls video playback rate per scene (separate from TTS `speed`). Integrated into speed ramp segments via `SceneSpeedMap` in `src/speed-ramp.ts`. Wired through pipeline, CLI export, and preview export paths.
+`playbackSpeed: 0.5` in `.scenes.json` controls video playback rate per scene (separate from TTS `speed`). Integrated into speed ramp segments via `SceneSpeedMap` in `src/speed-ramp.ts`. Wired through pipeline, CLI export, and preview export paths. Speed applies to the full recording span (mark to next mark), not just the TTS placement window — gaps after a sped-up scene inherit its speed until the next scene starts. This means `playbackSpeed: 25` on a loading scene fast-forwards both the voiceover window and the dead time after it.
 
 ### Arrow Overlay Template
 
@@ -216,6 +216,7 @@ Custom `test` fixture extends Playwright's `test` with a `narration` fixture tha
 - Re-record and Export both update the served video path so the new MP4 is served immediately without restarting
 - Preview reads `headTrimMs` from `.meta.json` to shift timeline — only shifts when metadata confirms trimming was applied (standalone `argo export` produces untrimmed video)
 - Preview UI follows system light/dark mode via `prefers-color-scheme` CSS media query
+- Frame & Background panel: collapsible sidebar panel for configuring frame effect (padding, border radius, shadow + color, background type). Supports solid, gradient, auto (probes video edge colors via `/api/probe-auto-bg`), and image backgrounds. Live CSS preview in the video container. Settings persist to `.argo/<demo>/frame-config.json` sidecar (survives server restarts). Sidecar takes priority over `export.frame` in config module for both UI load and export paths. Auto background probe uses raw recording (not exported MP4) to match export behavior.
 
 ## Thumbnail
 
@@ -245,7 +246,7 @@ Custom `test` fixture extends Playwright's `test` with a `narration` fixture tha
 - `tsc` build may silently fail if `tsconfig.json` is missing — verify it exists before trusting `npm run build` output
 - `dissolve` transition is a shorter dip-to-black, not a true crossfade blend. A real crossfade would require ffmpeg `xfade` with re-encoded segment pairs — impractical for continuous recordings.
 - ~~`9:16` format export center-crops from 16:9~~ — FIXED: now uses blur-fill (blurred background + scaled-to-fit foreground).
-- `speedRamp` + `transitions` cannot be used together — both generate filter_complex graphs with conflicting stream labels. Use one or the other.
+- ~~`speedRamp` + `transitions` cannot be used together~~ — FIXED: speed ramp filter labels are now prefixed with `sr_` to avoid collisions with transition labels.
 - ffmpeg `crop` filter does NOT evaluate `w`/`h` per-frame — only `x`/`y` are dynamic. Use `zoompan` for animated zoom effects. This was the root cause of the camera move no-op bug.
 - `-af` and `-filter_complex` cannot coexist on the same stream — when transitions produce a `filter_complex`, `loudnorm` must be appended inside the graph, not as `-af`.
 - npm version tags: if a tag was already published to npm, you must bump to a new version (can't re-publish the same version even after deleting the tag).

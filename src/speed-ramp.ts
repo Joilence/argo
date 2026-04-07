@@ -32,21 +32,28 @@ export function computeSegments(
   const sorted = [...placements].sort((a, b) => a.startMs - b.startMs);
   const segments: Segment[] = [];
   let cursor = 0;
+  // Track per-scene speed so gaps after a sped-up scene inherit its speed.
+  // This makes playbackSpeed cover the full recording span (mark to next mark),
+  // not just the TTS placement window.
+  let prevSceneSpeed = 1.0;
 
   for (const p of sorted) {
-    if (p.startMs - cursor >= minGapMs && gapSpeed > 1.0) {
-      // Gap before this scene
+    if (p.startMs > cursor) {
+      // Gap before this scene:
+      // 1. If gapSpeed is configured and gap is large enough, use gapSpeed
+      // 2. Otherwise inherit previous scene's playbackSpeed (covers the full
+      //    recording span from mark to next mark, not just the TTS window)
+      // 3. Fall back to 1.0
+      let useSpeed = 1.0;
+      if (p.startMs - cursor >= minGapMs && gapSpeed > 1.0) {
+        useSpeed = gapSpeed;
+      } else if (prevSceneSpeed !== 1.0) {
+        useSpeed = prevSceneSpeed;
+      }
       segments.push({
         startMs: cursor,
         endMs: p.startMs,
-        speed: gapSpeed,
-      });
-    } else if (p.startMs > cursor) {
-      // Small gap or gapSpeed <= 1.0: keep at normal speed
-      segments.push({
-        startMs: cursor,
-        endMs: p.startMs,
-        speed: 1.0,
+        speed: useSpeed,
       });
     }
     // Scene segment with optional per-scene speed override
@@ -56,21 +63,22 @@ export function computeSegments(
       endMs: p.endMs,
       speed: sceneSpeed,
     });
+    prevSceneSpeed = sceneSpeed;
     cursor = p.endMs;
   }
 
-  // Trailing gap
-  if (totalDurationMs - cursor >= minGapMs && gapSpeed > 1.0) {
+  // Trailing gap — gapSpeed wins if configured, else inherit previous scene speed
+  if (totalDurationMs > cursor) {
+    let trailingSpeed = 1.0;
+    if (totalDurationMs - cursor >= minGapMs && gapSpeed > 1.0) {
+      trailingSpeed = gapSpeed;
+    } else if (prevSceneSpeed !== 1.0) {
+      trailingSpeed = prevSceneSpeed;
+    }
     segments.push({
       startMs: cursor,
       endMs: totalDurationMs,
-      speed: gapSpeed,
-    });
-  } else if (totalDurationMs > cursor) {
-    segments.push({
-      startMs: cursor,
-      endMs: totalDurationMs,
-      speed: 1.0,
+      speed: trailingSpeed,
     });
   }
 
@@ -144,10 +152,10 @@ export function buildSpeedRampFilter(
 
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
-    const vLabel = `v${i}`;
-    const aLabel = `a${i}`;
-    const vOut = `vout${i}`;
-    const aOut = `aout${i}`;
+    const vLabel = `sr_v${i}`;
+    const aLabel = `sr_a${i}`;
+    const vOut = `sr_vout${i}`;
+    const aOut = `sr_aout${i}`;
 
     // Trim
     parts.push(
@@ -177,11 +185,17 @@ export function buildSpeedRampFilter(
     }
   }
 
-  // Concatenate
+  // Concatenate — ffmpeg concat requires interleaved order: [v0][a0][v1][a1]...
   const n = videoLabels.length;
   const concatStreams = inputs.audio ? 'v=1:a=1' : 'v=1:a=0';
+  let concatInputs: string;
+  if (inputs.audio) {
+    concatInputs = videoLabels.map((v, i) => `${v}${audioLabels[i]}`).join('');
+  } else {
+    concatInputs = videoLabels.join('');
+  }
   parts.push(
-    `${videoLabels.join('')}${inputs.audio ? audioLabels.join('') : ''}concat=n=${n}:${concatStreams}[outv]${inputs.audio ? '[outa]' : ''}`,
+    `${concatInputs}concat=n=${n}:${concatStreams}[outv]${inputs.audio ? '[outa]' : ''}`,
   );
 
   return {

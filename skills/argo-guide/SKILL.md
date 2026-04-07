@@ -287,7 +287,7 @@ export: {
 - **Sharpening:** `sharpen: true` applies ffmpeg CAS (contrast-adaptive sharpening) for crisp UI text. `{ strength: 0.5 }` to tune.
 - **Frame:** `frame: { padding, borderRadius, shadow, background }` wraps recording in a styled frame with rounded corners, drop shadow, and background. Background `{ type: 'auto' }` probes video colors for a matching gradient. Also supports `solid`, `gradient`, and `image`.
 - **Motion blur:** `motionBlur: { intensity: 0.5 }` applies time-gated blur during camera move zoom-in/zoom-out transitions. Static frames stay sharp.
-- **Per-scene speed:** Add `playbackSpeed: 0.5` to scene entries in `.scenes.json` for slow-mo or fast-forward per scene (separate from TTS `speed`).
+- **Per-scene speed:** Add `playbackSpeed: 0.5` to scene entries in `.scenes.json` for slow-mo or fast-forward per scene (separate from TTS `speed`). Speed applies to the full recording span (mark to next mark), not just the TTS window — great for fast-forwarding loading screens (e.g., `playbackSpeed: 25`). Works alongside transitions.
 - **Progress bar:** Export shows encoding progress automatically when duration is known
 
 ### Freeze-Frame Holds
