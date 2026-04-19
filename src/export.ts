@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Placement } from './tts/align.js';
 import type { TransitionConfig, WatermarkConfig, FrameConfig } from './config.js';
 import { buildTransitionFilters } from './transitions.js';
+import { buildShaderSpliceFilter } from './transitions/shader-splice.js';
 import { runFfmpegWithProgress } from './progress.js';
 import { buildSpeedRampFilter, type Segment } from './speed-ramp.js';
 import { buildCameraMoveFilter, buildMotionBlurFilter, type CameraMove } from './camera-move.js';
@@ -67,6 +68,8 @@ export interface ExportOptions {
   /** Apply motion blur during camera move transitions.
    * true = intensity 0.5. { intensity: 0.0-1.0 } to tune. */
   motionBlur?: boolean | { intensity: number };
+  /** Pre-rendered shader transitions — paths to PNG sequence dirs per boundary. */
+  shaderTransitions?: Array<{ boundarySec: number; durationMs: number; pngDir: string; frameCount: number }>;
 }
 
 function formatSeconds(ms: number): string {
@@ -299,15 +302,58 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   // Scene transitions
   let transitionComplex: { filterComplex: string; videoOutput: string; audioOutput: string | null } | null = null;
   if (transition && placements && placements.length > 1) {
-    const transitionResult = buildTransitionFilters(placements, transition, hasAudio, fps ?? 30);
-    if (Array.isArray(transitionResult)) {
-      // Simple -vf filters (wipe)
-      vFilters.push(...transitionResult);
-    } else if ('filterComplex' in transitionResult) {
-      // Complex filter graph (fade/dissolve — split+trim+fade+concat)
-      transitionComplex = transitionResult;
+    if (transition.type === 'shader' && options.shaderTransitions && options.shaderTransitions.length > 0) {
+      // Shader transitions: register each PNG sequence as a new ffmpeg input,
+      // then build a splice filter_complex. PNG inputs are inserted here (before
+      // overlay PNGs / frame / watermark) so their extraInputIndex values are stable.
+
+      // If vFilters exist (scale, tpad, setparams), apply them before the splice
+      // by prepending a filter graph node that consumes videoSource and emits a
+      // labelled output the splice can reference.
+      let shaderVideoLabel = videoSource;
+      if (vFilters.length > 0) {
+        const shaderPreLabel = 'svpre';
+        filterParts.push(`[${videoSource}]${vFilters.join(',')}[${shaderPreLabel}]`);
+        shaderVideoLabel = shaderPreLabel;
+        vFilters.length = 0; // consumed — prevent double-emit via -vf below
+      }
+
+      const shaderInputIndices: number[] = [];
+      for (const st of options.shaderTransitions) {
+        const idx = nextInput++;
+        shaderInputIndices.push(idx);
+        args.push(
+          '-framerate', String(fps ?? 30),
+          '-i', join(st.pngDir, 'frame_%04d.png'),
+        );
+      }
+      const spliceResult = buildShaderSpliceFilter({
+        totalDurationSec: (totalDurationMs ?? 0) / 1000,
+        boundaries: options.shaderTransitions.map((st, i) => ({
+          boundarySec: st.boundarySec,
+          durationMs: st.durationMs,
+          extraInputIndex: shaderInputIndices[i],
+        })),
+        videoInputLabel: `[${shaderVideoLabel}]`,
+        audioInputLabel: hasAudio ? `[${audioSource}]` : null,
+        fps: fps ?? 30,
+      });
+      transitionComplex = {
+        filterComplex: spliceResult.filterComplex,
+        videoOutput: spliceResult.videoOutput,
+        audioOutput: spliceResult.audioOutput,
+      };
+    } else {
+      const transitionResult = buildTransitionFilters(placements, transition, hasAudio, fps ?? 30);
+      if (Array.isArray(transitionResult)) {
+        // Simple -vf filters (wipe)
+        vFilters.push(...transitionResult);
+      } else if ('filterComplex' in transitionResult) {
+        // Complex filter graph (fade/dissolve — split+trim+fade+concat)
+        transitionComplex = transitionResult;
+      }
+      // else: shaderDeferred sentinel — no shaderTransitions provided yet
     }
-    // else: shaderDeferred sentinel — shader path handled separately in Task 9
   }
 
   if (transitionComplex) {

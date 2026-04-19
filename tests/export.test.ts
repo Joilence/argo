@@ -935,4 +935,36 @@ describe('exportVideo', () => {
     const inputCount = a.filter(x => x === '-i').length;
     expect(inputCount).toBeGreaterThanOrEqual(3); // video + audio + frame.png
   });
+
+  // ---------- shader transitions ----------
+
+  it('threads shader PNG sequences through ffmpeg with splice filter_complex', async () => {
+    setupHappy();
+    await exportVideo({
+      demoName: 'demo', argoDir: '.argo', outputDir: 'out',
+      placements: [
+        { scene: 'a', startMs: 0, endMs: 3000 },
+        { scene: 'b', startMs: 3000, endMs: 6000 },
+      ],
+      transition: { type: 'shader', shader: 'crosswarp', durationMs: 800 },
+      shaderTransitions: [
+        { boundarySec: 3.0, durationMs: 800, pngDir: '.argo/demo/shaders/abc123', frameCount: 24 },
+      ],
+      totalDurationMs: 6000,
+    });
+
+    // totalDurationMs triggers runFfmpegWithProgress path
+    const a = mockedRunFfmpegWithProgress.mock.calls[0][0] as string[];
+    // PNG sequence input is added
+    expect(a).toContain('-framerate');
+    const fIdx = a.indexOf('-framerate');
+    expect(a[fIdx + 1]).toBe('30');  // default fps
+    // frame_%04d.png pattern present
+    expect(a.some(x => x.includes('frame_%04d.png'))).toBe(true);
+    // filter_complex contains shader splice output
+    expect(a).toContain('-filter_complex');
+    const fc = a[a.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('[svout]');
+    expect(fc).toMatch(/concat=n=3/);
+  });
 });
