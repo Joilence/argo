@@ -139,3 +139,44 @@ describe('renderShaderFrames', () => {
     rmSync(tmp, { recursive: true, force: true });
   }, 60000);
 });
+
+describe('renderShaderTransitions', () => {
+  const hasSample = existsSync(join(process.cwd(), 'tests/fixtures/sample-2s.mp4'));
+
+  it.runIf(hasSample)('renders each boundary and caches by content hash', async () => {
+    const { renderShaderTransitions } = await import('../../src/transitions/shader-render.js');
+    const tmp = mkdtempSync(join(tmpdir(), 'argo-orch-'));
+    const cacheDir = join(tmp, 'shaders');
+    const sample = join(process.cwd(), 'tests/fixtures/sample-2s.mp4');
+
+    const boundaries = [
+      { boundarySec: 0.5, durationMs: 400 },
+      { boundarySec: 1.5, durationMs: 400 },
+    ];
+
+    const result = await renderShaderTransitions({
+      videoPath: sample,
+      boundaries,
+      shader: 'crosswarp',
+      width: 320, height: 180, fps: 30,
+      cacheDir,
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result[0].frameCount).toBe(12);  // 400ms * 30fps / 1000
+    expect(result[0].pngDir).toBeTruthy();
+    expect(result[0].hash).toMatch(/^[0-9a-f]{16}$/);
+
+    // Second run hits cache
+    const mtimeBefore = statSync(join(result[0].pngDir, 'frame_0000.png')).mtimeMs;
+    await new Promise(r => setTimeout(r, 50));
+    const result2 = await renderShaderTransitions({
+      videoPath: sample, boundaries, shader: 'crosswarp',
+      width: 320, height: 180, fps: 30, cacheDir,
+    });
+    const mtimeAfter = statSync(join(result2[0].pngDir, 'frame_0000.png')).mtimeMs;
+    expect(mtimeAfter).toBe(mtimeBefore);  // file untouched → cache hit
+
+    rmSync(tmp, { recursive: true, force: true });
+  }, 120000);
+});

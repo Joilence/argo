@@ -1,4 +1,4 @@
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, existsSync as existsSyncFs, readdirSync } from 'node:fs';
 import { join as pathJoin } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -128,4 +128,101 @@ export async function renderShaderFrames(opts: RenderShaderFramesOptions): Promi
   }
 
   return N;
+}
+
+export interface BoundarySpec {
+  boundarySec: number;
+  durationMs: number;
+}
+
+export interface ShaderTransitionRenderResult {
+  boundarySec: number;
+  durationMs: number;
+  pngDir: string;
+  frameCount: number;
+  hash: string;
+}
+
+/**
+ * For each scene boundary, extract two boundary frames, compute a content
+ * hash, and render the shader's PNG sequence if not already cached.
+ * Reuses a single Playwright browser across all boundaries.
+ */
+export async function renderShaderTransitions(opts: {
+  videoPath: string;
+  boundaries: BoundarySpec[];
+  shader: ShaderName;
+  width: number;
+  height: number;
+  fps: number;
+  cacheDir: string;
+}): Promise<ShaderTransitionRenderResult[]> {
+  if (opts.boundaries.length === 0) return [];
+
+  mkdirSync(opts.cacheDir, { recursive: true });
+
+  // Extract all boundary frames up front (cheap, sequential ffmpeg calls)
+  const tmpFramesDir = pathJoin(opts.cacheDir, '_boundaries');
+  mkdirSync(tmpFramesDir, { recursive: true });
+  const extracted: Array<{ aPath: string; bPath: string; spec: BoundarySpec }> = [];
+  const epsilon = 1 / opts.fps / 2;
+  for (let i = 0; i < opts.boundaries.length; i++) {
+    const b = opts.boundaries[i];
+    const aPath = pathJoin(tmpFramesDir, `b${i}_a.png`);
+    const bPath = pathJoin(tmpFramesDir, `b${i}_b.png`);
+    await extractBoundaryFrame(opts.videoPath, Math.max(0, b.boundarySec - epsilon), aPath);
+    await extractBoundaryFrame(opts.videoPath, b.boundarySec + epsilon, bPath);
+    extracted.push({ aPath, bPath, spec: b });
+  }
+
+  // Determine cache hits / misses
+  const plan = extracted.map(({ aPath, bPath, spec }) => {
+    const hash = computeShaderHash(opts.shader, spec.durationMs, opts.fps, opts.width, opts.height, aPath, bPath);
+    const pngDir = pathJoin(opts.cacheDir, hash);
+    const N = Math.max(1, Math.round((spec.durationMs * opts.fps) / 1000));
+    const cached = existsSyncFs(pngDir) && readdirSync(pngDir).filter(f => f.endsWith('.png')).length === N;
+    return { aPath, bPath, spec, hash, pngDir, N, cached };
+  });
+
+  const anyMisses = plan.some(p => !p.cached);
+  let browser: Browser | undefined;
+  try {
+    if (anyMisses) {
+      browser = await chromium.launch({
+        args: [
+          '--use-gl=angle',
+          '--use-angle=swiftshader',
+          '--enable-webgl',
+          '--ignore-gpu-blacklist',
+        ],
+      });
+    }
+
+    const results: ShaderTransitionRenderResult[] = [];
+    for (const p of plan) {
+      if (!p.cached) {
+        await renderShaderFrames({
+          shader: opts.shader,
+          aPng: p.aPath,
+          bPng: p.bPath,
+          width: opts.width,
+          height: opts.height,
+          fps: opts.fps,
+          durationMs: p.spec.durationMs,
+          outputDir: p.pngDir,
+          browser,
+        });
+      }
+      results.push({
+        boundarySec: p.spec.boundarySec,
+        durationMs: p.spec.durationMs,
+        pngDir: p.pngDir,
+        frameCount: p.N,
+        hash: p.hash,
+      });
+    }
+    return results;
+  } finally {
+    if (browser) await browser.close();
+  }
 }
