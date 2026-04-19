@@ -89,3 +89,23 @@ describe('x-post block', () => {
     expect(result.contentHtml).toContain('&quot; onerror=&quot;');
   });
 });
+
+describe('macos-notification block', () => {
+  it('renders app name, title, body, timestamp', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'macos-notification',
+      props: { appName: 'Argo', title: 'New signup', body: 'jane@example.com just joined', timestamp: 'now' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Argo');
+    expect(result.contentHtml).toContain('New signup');
+    expect(result.contentHtml).toContain('jane@example.com');
+  });
+
+  it('escapes HTML in all fields', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'macos-notification',
+      props: { appName: '<img onerror=1>', title: 'T', body: 'B', timestamp: 'now' },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('<img onerror');
+  });
+});
