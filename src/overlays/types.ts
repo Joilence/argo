@@ -81,7 +81,18 @@ export interface ArrowCue {
   autoBackground?: boolean;
 }
 
-export type OverlayCue = LowerThirdCue | HeadlineCardCue | CalloutCue | ImageCardCue | ArrowCue;
+export interface CustomBlockCue {
+  type: 'block';
+  /** Block id — must exist in BLOCK_REGISTRY. */
+  block: string;
+  /** Block-specific props. Shape is validated per-block at render time. */
+  props: Record<string, unknown>;
+  placement?: Zone;
+  motion?: MotionPreset;
+  autoBackground?: boolean;
+}
+
+export type OverlayCue = LowerThirdCue | HeadlineCardCue | CalloutCue | ImageCardCue | ArrowCue | CustomBlockCue;
 
 export type OverlayManifestEntry = OverlayCue & {
   scene: string;

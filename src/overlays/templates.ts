@@ -168,5 +168,7 @@ export function renderTemplate(cue: OverlayCue, theme: BackgroundTheme = 'dark')
       return imageCard(cue.src, theme, cue.title, cue.body);
     case 'arrow':
       return arrow(theme, cue.direction, cue.label, cue.color, cue.size);
+    case 'block':
+      throw new Error('block rendering not yet implemented');
   }
 }
