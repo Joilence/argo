@@ -73,6 +73,12 @@ describe('exportVideo', () => {
       '-pix_fmt', 'yuv420p',
       '-preset', 'slow',
       '-crf', '16',
+      '-x264-params', 'aq-mode=3:aq-strength=0.8:deblock=1,1:colorprim=bt709:transfer=bt709:colormatrix=bt709',
+      '-colorspace:v', 'bt709',
+      '-color_primaries:v', 'bt709',
+      '-color_trc:v', 'bt709',
+      '-color_range', 'tv',
+      '-video_track_timescale', '90000',
       '-c:a', 'aac',
       '-b:a', '192k',
       '-shortest',
@@ -602,5 +608,40 @@ describe('exportVideo', () => {
     const fcIdx = a.indexOf('-filter_complex');
     const fc = a[fcIdx + 1];
     expect(fc).toContain('[4:v]');
+  });
+
+  // ---------- BT.709 color space tagging ----------
+
+  it('embeds BT.709 color metadata in the output args', async () => {
+    setupHappy();
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out' });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+
+    // x264-params should include BT.709 + AQ tuning
+    const x264Idx = a.indexOf('-x264-params');
+    expect(x264Idx).toBeGreaterThan(-1);
+    const x264Params = a[x264Idx + 1];
+    expect(x264Params).toContain('colorprim=bt709');
+    expect(x264Params).toContain('transfer=bt709');
+    expect(x264Params).toContain('colormatrix=bt709');
+    expect(x264Params).toContain('aq-mode=3');
+    expect(x264Params).toContain('aq-strength=0.8');
+    expect(x264Params).toContain('deblock=1,1');
+
+    // Container-level color tags
+    expect(a).toContain('-colorspace:v');
+    expect(a[a.indexOf('-colorspace:v') + 1]).toBe('bt709');
+    expect(a).toContain('-color_primaries:v');
+    expect(a[a.indexOf('-color_primaries:v') + 1]).toBe('bt709');
+    expect(a).toContain('-color_trc:v');
+    expect(a[a.indexOf('-color_trc:v') + 1]).toBe('bt709');
+    expect(a).toContain('-color_range');
+    expect(a[a.indexOf('-color_range') + 1]).toBe('tv');
+
+    // Fixed timescale
+    expect(a).toContain('-video_track_timescale');
+    expect(a[a.indexOf('-video_track_timescale') + 1]).toBe('90000');
   });
 });

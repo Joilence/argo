@@ -482,12 +482,29 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
     args.push('-filter_complex', filterParts.join(';\n'));
   }
 
+  args.push('-c:v', 'libx264');
+  args.push('-pix_fmt', 'yuv420p');
+  args.push('-preset', preset);
+  args.push('-crf', String(crf));
+
+  // aq-mode=3 redistributes bits to dark flat regions (kills gradient banding),
+  // deblock softens macroblock edges. BT.709 params embed color-space VUI in H.264.
   args.push(
-    '-c:v', 'libx264',
-    '-pix_fmt', 'yuv420p',
-    '-preset', preset,
-    '-crf', String(crf),
+    '-x264-params',
+    'aq-mode=3:aq-strength=0.8:deblock=1,1:colorprim=bt709:transfer=bt709:colormatrix=bt709',
   );
+
+  // Container-level color space tags — picked up by Safari, modern TVs, and
+  // standards-compliant players. Chrome screenshots are sRGB which maps to BT.709.
+  args.push(
+    '-colorspace:v', 'bt709',
+    '-color_primaries:v', 'bt709',
+    '-color_trc:v', 'bt709',
+    '-color_range', 'tv',
+  );
+
+  // Fixed 90kHz timescale prevents A/V timing drift across platforms.
+  args.push('-video_track_timescale', '90000');
   if (hasAnyAudio) {
     if (useLoudnormSimple) {
       args.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
