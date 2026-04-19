@@ -287,9 +287,10 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   // Chrome renders full-range RGB (0-255); H.264 expects TV range (16-235).
   // Convert so blacks don't clip and contrast matches on compliant players.
   vFilters.push('scale=in_range=pc:out_range=tv');
-  // Tag color space at the frame level so metadata flows to the output stream
-  // regardless of encoder. libx264's VUI (-x264-params) honors these flags
-  // natively, but videotoolbox/nvenc/vaapi do not — setparams makes it universal.
+  // setparams is added here for the simple -vf path (no compositing). When
+  // overlay/composite steps run later (frame, watermark, overlayPNGs), they strip
+  // color params from the top layer, so we re-inject setparams after all compositing
+  // is done. See the setparams re-injection block below (after sharpen).
   vFilters.push('setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv');
 
   // Note: VAAPI format=nv12,hwupload is deferred to AFTER all software filters
@@ -339,6 +340,11 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       args.push('-vf', vFilters.join(','));
     }
   }
+
+  // Track videoSource after vFilters are applied. Compositing steps (camera moves,
+  // overlayPNGs, frame, watermark, sharpen) may run next — if any of them change
+  // videoSource, setparams will need to be re-applied as the final graph node.
+  const videoSourceAfterVFilters = videoSource;
 
   // Post-export camera moves (zoom/pan) — applied AFTER transitions so that
   // the time variable `t` is continuous across the concatenated output.
@@ -451,6 +457,17 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
     } else {
       args.push('-vf', `cas=${clampedStrength}`);
     }
+  }
+
+  // setparams re-injection — only needed when compositing occurred AFTER vFilters were
+  // consumed. Overlay compositing (frame PNG + watermark + overlay PNGs + camera moves)
+  // inherits color params from the bottom layer and strips them from the top layer, so
+  // the setparams in vFilters (above) has no effect once compositing runs. Re-apply it
+  // as the final graph node when videoSource moved past where vFilters left off.
+  if (videoSource !== videoSourceAfterVFilters) {
+    const setparamsFilter = 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv';
+    filterParts.push(`[${videoSource}]${setparamsFilter}[vtagged]`);
+    videoSource = 'vtagged';
   }
 
   // Background music mixing — applied before loudnorm so normalization covers the mix

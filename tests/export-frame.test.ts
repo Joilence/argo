@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('node:child_process', () => ({
+  execFile: vi.fn(),
   execFileSync: vi.fn(),
   spawnSync: vi.fn(),
 }));
@@ -12,6 +13,12 @@ vi.mock('node:fs', () => ({
 
 vi.mock('../src/progress.js', () => ({
   runFfmpegWithProgress: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../src/gpu-encoder.js', () => ({
+  detectGpuEncoder: vi.fn().mockResolvedValue(null),
+  getGpuEncoderName: vi.fn((enc: string | null, _codec: string) => enc ? `h264_${enc}` : 'libx264'),
+  isGpuEncodingEnabled: vi.fn().mockReturnValue(true),
 }));
 
 import { execFileSync, spawnSync } from 'node:child_process';
