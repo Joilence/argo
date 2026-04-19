@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { TTSEngine } from './tts/engine.js';
+import type { ShaderName } from './transitions/shaders/index.js';
 export type { TTSEngine };
 
 // ---- Types ----
@@ -28,14 +29,23 @@ export interface VideoConfig {
   contextOptions?: Record<string, unknown>;
 }
 
-export type TransitionType = 'fade-through-black' | 'dissolve' | 'wipe-left' | 'wipe-right';
+export type FilterTransitionType = 'fade-through-black' | 'dissolve' | 'wipe-left' | 'wipe-right';
 
-export interface TransitionConfig {
-  /** Transition type applied between scenes. */
-  type: TransitionType;
-  /** Duration of the transition in milliseconds (default 500). */
+export interface FilterTransitionConfig {
+  type: FilterTransitionType;
   durationMs?: number;
 }
+
+export interface ShaderTransitionConfig {
+  type: 'shader';
+  shader: ShaderName;
+  durationMs?: number;
+}
+
+export type TransitionConfig = FilterTransitionConfig | ShaderTransitionConfig;
+
+/** @deprecated retained for backward compatibility — prefer FilterTransitionType. */
+export type TransitionType = FilterTransitionType;
 
 export interface SpeedRampConfig {
   /** Speed multiplier for gaps between scenes (e.g., 2.0 = 2× faster). Default 1.0 (no change). */

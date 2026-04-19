@@ -142,6 +142,12 @@ export function buildTransitionFilters(
   const durSec = durMs / 1000;
   const halfDur = durSec / 2;
 
+  // Shader transitions are handled by a dedicated pre-pass (shader-render.ts).
+  // Return no-op here — Task 8 wires the real splice behavior.
+  if (transition.type === 'shader') {
+    return [];
+  }
+
   if (transition.type === 'wipe-left' || transition.type === 'wipe-right') {
     const parts: string[] = [];
     for (let i = 1; i < placements.length; i++) {

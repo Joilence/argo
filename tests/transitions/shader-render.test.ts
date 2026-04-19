@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SHADERS, isValidShaderName, SHADER_NAMES } from '../../src/transitions/shaders/index.js';
+import type { TransitionConfig } from '../../src/config.js';
 
 describe('shader registry', () => {
   it('ships exactly the v1 five shaders', () => {
@@ -17,5 +18,16 @@ describe('shader registry', () => {
   it('isValidShaderName checks membership', () => {
     expect(isValidShaderName('crosswarp')).toBe(true);
     expect(isValidShaderName('bogus')).toBe(false);
+  });
+});
+
+describe('TransitionConfig shader variant', () => {
+  it('accepts { type: "shader", shader: ... } at compile time', () => {
+    const cfg: TransitionConfig = {
+      type: 'shader',
+      shader: 'crosswarp',
+      durationMs: 800,
+    };
+    expect(cfg.type).toBe('shader');
   });
 });
