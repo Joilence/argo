@@ -34,32 +34,56 @@ export function buildShaderSpliceFilter(opts: ShaderSpliceOptions): ShaderSplice
   const audioLabels: string[] = [];
 
   let cursorSec = 0;
+  let activeBoundaries = 0;
   for (let i = 0; i < boundaries.length; i++) {
     const b = boundaries[i];
-    const dHalf = b.durationMs / 2000;
-    const sceneEnd = Math.max(cursorSec, b.boundarySec - dHalf);
-    const transitionEnd = Math.min(opts.totalDurationSec, b.boundarySec + dHalf);
+    const rawDHalf = b.durationMs / 2000;
 
-    const vSceneLabel = `ssv${i}`;
+    // Clamp dHalf so the transition window can't overlap the previous one
+    // (cursorSec) or exceed the total video duration.
+    const maxDHalfFromCursor = Math.max(0, b.boundarySec - cursorSec);
+    const maxDHalfFromTotal = Math.max(0, opts.totalDurationSec - b.boundarySec);
+    const dHalf = Math.min(rawDHalf, maxDHalfFromCursor, maxDHalfFromTotal);
+
+    // If there's no room for the transition, skip this boundary entirely.
+    // Downstream concat count and input indices adjust accordingly.
+    if (dHalf <= 0) {
+      // Warn once so users notice they configured overlapping transitions
+      console.warn(
+        `[shader-splice] skipping boundary at ${b.boundarySec.toFixed(2)}s — ` +
+        `no room for ${b.durationMs}ms transition (too close to previous boundary or end of video)`,
+      );
+      continue;
+    }
+
+    // TODO: when dHalf is clamped smaller than rawDHalf, the PNG sequence was
+    // rendered for the original duration but the splice slot is now shorter —
+    // the PNG plays fewer frames before cutting to the next segment. A full fix
+    // would regenerate PNG frames at the clamped duration.
+
+    const sceneEnd = b.boundarySec - dHalf;
+    const transitionEnd = b.boundarySec + dHalf;
+
+    const vSceneLabel = `ssv${activeBoundaries}`;
     parts.push(
       `${videoInputLabel}trim=${cursorSec.toFixed(3)}:${sceneEnd.toFixed(3)},setpts=PTS-STARTPTS[${vSceneLabel}]`,
     );
     videoLabels.push(`[${vSceneLabel}]`);
 
     if (audioInputLabel) {
-      const aSceneLabel = `ssa${i}`;
+      const aSceneLabel = `ssa${activeBoundaries}`;
       parts.push(
         `${audioInputLabel}atrim=${cursorSec.toFixed(3)}:${sceneEnd.toFixed(3)},asetpts=PTS-STARTPTS[${aSceneLabel}]`,
       );
       audioLabels.push(`[${aSceneLabel}]`);
     }
 
-    const vTransLabel = `stv${i}`;
+    const vTransLabel = `stv${activeBoundaries}`;
     parts.push(`[${b.extraInputIndex}:v]setpts=PTS-STARTPTS[${vTransLabel}]`);
     videoLabels.push(`[${vTransLabel}]`);
 
     if (audioInputLabel) {
-      const aTransLabel = `sta${i}`;
+      const aTransLabel = `sta${activeBoundaries}`;
       parts.push(
         `${audioInputLabel}atrim=${sceneEnd.toFixed(3)}:${transitionEnd.toFixed(3)},asetpts=PTS-STARTPTS[${aTransLabel}]`,
       );
@@ -67,16 +91,17 @@ export function buildShaderSpliceFilter(opts: ShaderSpliceOptions): ShaderSplice
     }
 
     cursorSec = transitionEnd;
+    activeBoundaries++;
   }
 
   // Final scene segment
-  const vLastLabel = `ssv${boundaries.length}`;
+  const vLastLabel = `ssv${activeBoundaries}`;
   parts.push(
     `${videoInputLabel}trim=${cursorSec.toFixed(3)}:${totalDurationSec.toFixed(3)},setpts=PTS-STARTPTS[${vLastLabel}]`,
   );
   videoLabels.push(`[${vLastLabel}]`);
   if (audioInputLabel) {
-    const aLastLabel = `ssa${boundaries.length}`;
+    const aLastLabel = `ssa${activeBoundaries}`;
     parts.push(
       `${audioInputLabel}atrim=${cursorSec.toFixed(3)}:${totalDurationSec.toFixed(3)},asetpts=PTS-STARTPTS[${aLastLabel}]`,
     );
