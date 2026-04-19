@@ -20,6 +20,7 @@ import {
 import type { ArgoConfig } from './config.js';
 import { getVideoDurationMs } from './media.js';
 import { buildOverlayPngsForImport } from './overlays/render-to-png.js';
+import { renderShaderTransitions } from './transitions/shader-render.js';
 // Note: MusicGen (AI music generation) is a preview-only feature — runs in browser via WebGPU.
 // Pipeline uses saved WAV files via audio.music config path.
 import {
@@ -347,6 +348,30 @@ export async function runPipeline(
     exportOptions.cameraMoves = moves;
   }
 
+  // Pre-render shader transition frames when transition type is 'shader'
+  if (config.export?.transition?.type === 'shader' && finalPlacements.length > 1) {
+    const shaderTransition = config.export.transition;
+    // finalPlacements are post-trim; frame extraction needs pre-trim timestamps
+    const boundaries = finalPlacements.slice(1).map(p => ({
+      boundarySec: (p.startMs + headTrimMs) / 1000,
+      durationMs: shaderTransition.durationMs ?? 800,
+    }));
+    const rendered = await renderShaderTransitions({
+      videoPath,
+      boundaries,
+      shader: shaderTransition.shader,
+      width: config.video?.width ?? 1280,
+      height: config.video?.height ?? 720,
+      fps: config.video?.fps ?? 30,
+      cacheDir: join(argoDir, 'shaders'),
+    });
+    // Remap boundarySec from pre-trim back to post-trim for the filter_complex splice
+    exportOptions.shaderTransitions = rendered.map((r, i) => ({
+      ...r,
+      boundarySec: finalPlacements[i + 1].startMs / 1000,
+    }));
+  }
+
   const outputPath = await exportVideo(exportOptions);
 
   // Scene report
@@ -507,6 +532,31 @@ export async function runPipeline(
         deviceScaleFactor: config.video.deviceScaleFactor,
       });
 
+      // Pre-render shader transitions for this variant
+      let variantShaderTransitions;
+      if (config.export?.transition?.type === 'shader' && variantPlacements.length > 1) {
+        const shaderTransition = config.export.transition;
+        // variantPlacements are post-trim; frame extraction needs pre-trim timestamps
+        const variantBoundaries = variantPlacements.slice(1).map(p => ({
+          boundarySec: (p.startMs + variantHeadTrimMs) / 1000,
+          durationMs: shaderTransition.durationMs ?? 800,
+        }));
+        const variantRendered = await renderShaderTransitions({
+          videoPath: variantVideoPath,
+          boundaries: variantBoundaries,
+          shader: shaderTransition.shader,
+          width: variant.video.width,
+          height: variant.video.height,
+          fps: config.video?.fps ?? 30,
+          cacheDir: join('.argo', variantSubdir, 'shaders'),
+        });
+        // Remap boundarySec to post-trim for the filter_complex splice
+        variantShaderTransitions = variantRendered.map((r, i) => ({
+          ...r,
+          boundarySec: variantPlacements[i + 1].startMs / 1000,
+        }));
+      }
+
       const variantOutputPath = await exportVideo({
         demoName: variantSubdir,
         argoDir: '.argo',
@@ -532,6 +582,7 @@ export async function runPipeline(
         motionBlur: config.export.motionBlur,
         freezeSpecs: variantResolvedFreezes.length > 0 ? variantResolvedFreezes : undefined,
         overlayPngs: variantOverlayPngs,
+        shaderTransitions: variantShaderTransitions,
       });
 
       console.log(`🚀 Variant saved to: ${variantOutputPath}`);

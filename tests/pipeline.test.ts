@@ -15,9 +15,10 @@ vi.mock('../src/export.js', () => ({
   exportVideo: vi.fn(),
 }));
 
-// Mock execFileSync (used by getVideoDurationMs for ffprobe)
+// Mock execFileSync (used by getVideoDurationMs for ffprobe) and execFile (used by shader-render)
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn().mockReturnValue('16.240\n'),
+  execFile: vi.fn(),
 }));
 
 import { execFileSync } from 'node:child_process';

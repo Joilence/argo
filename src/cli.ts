@@ -28,6 +28,7 @@ import { generateSrt, generateVtt } from './subtitles.js';
 import { applySpeedRampToTimeline, type Segment, type SceneSpeedMap } from './speed-ramp.js';
 import { shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
 import { resolveFreezes, adjustPlacementsForFreezes, totalFreezeDurationMs, type FreezeSpec } from './freeze.js';
+import { renderShaderTransitions } from './transitions/shader-render.js';
 import type { Placement } from './tts/align.js';
 
 function validateDemoName(name: string): string {
@@ -220,6 +221,36 @@ export function createProgram(): Command {
         deviceScaleFactor: config.video.deviceScaleFactor,
       });
 
+      // Pre-render shader transition frames when transition type is 'shader'
+      let shaderTransitions: import('./transitions/shader-render.js').ShaderTransitionRenderResult[] | undefined;
+      if (
+        config.export?.transition?.type === 'shader' &&
+        placements && placements.length > 1 &&
+        chapterMetadataPath
+      ) {
+        const shaderTransition = config.export.transition;
+        const effectiveHeadTrimMs = headTrimMs ?? 0;
+        // placements are post-trim; frame extraction needs pre-trim timestamps
+        const boundaries = placements.slice(1).map(p => ({
+          boundarySec: (p.startMs + effectiveHeadTrimMs) / 1000,
+          durationMs: shaderTransition.durationMs ?? 800,
+        }));
+        const rendered = await renderShaderTransitions({
+          videoPath: `${demoDir}/video.webm`,
+          boundaries,
+          shader: shaderTransition.shader,
+          width: config.video?.width ?? 1280,
+          height: config.video?.height ?? 720,
+          fps: config.video?.fps ?? 30,
+          cacheDir: `.argo/${demo}/shaders`,
+        });
+        // Remap boundarySec to post-trim for the filter_complex splice
+        shaderTransitions = rendered.map((r, i) => ({
+          ...r,
+          boundarySec: placements![i + 1].startMs / 1000,
+        }));
+      }
+
       await exportVideo({
         demoName: demo,
         argoDir: '.argo',
@@ -259,6 +290,7 @@ export function createProgram(): Command {
         motionBlur: config.export.motionBlur,
         freezeSpecs: resolvedFreezes.length > 0 ? resolvedFreezes : undefined,
         overlayPngs,
+        shaderTransitions,
       });
     });
 

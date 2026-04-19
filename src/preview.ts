@@ -25,6 +25,7 @@ import { shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-mo
 import { generateFramePng } from './frame.js';
 import { resolveFreezes, adjustPlacementsForFreezes, totalFreezeDurationMs, type FreezeSpec } from './freeze.js';
 import { buildOverlayPngsForImport, isImportedVideo, type RenderedOverlayPng } from './overlays/render-to-png.js';
+import { renderShaderTransitions, type ShaderTransitionRenderResult } from './transitions/shader-render.js';
 import { detectVideoTheme, getVideoDurationMs, probeEdgeColors } from './media.js';
 import type { BackgroundTheme } from './overlays/zones.js';
 
@@ -1033,6 +1034,35 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             if (pngResult) framePngPath = pngResult;
           }
 
+          // Pre-render shader transition frames when transition type is 'shader'
+          let previewShaderTransitions: ShaderTransitionRenderResult[] | undefined;
+          if (
+            ec?.transition?.type === 'shader' &&
+            freezeAdjustedPlacements.length > 1 &&
+            rawVideoPath
+          ) {
+            const shaderTransition = ec.transition;
+            // freezeAdjustedPlacements are post-trim; frame extraction needs pre-trim timestamps
+            const shaderBoundaries = freezeAdjustedPlacements.slice(1).map(p => ({
+              boundarySec: (p.startMs + headTrimMs) / 1000,
+              durationMs: shaderTransition.durationMs ?? 800,
+            }));
+            const rendered = await renderShaderTransitions({
+              videoPath: rawVideoPath,
+              boundaries: shaderBoundaries,
+              shader: shaderTransition.shader,
+              width: ec?.outputWidth ?? 1280,
+              height: ec?.outputHeight ?? 720,
+              fps: ec?.fps ?? 30,
+              cacheDir: join(demoDir, 'shaders'),
+            });
+            // Remap boundarySec to post-trim for the filter_complex splice
+            previewShaderTransitions = rendered.map((r, i) => ({
+              ...r,
+              boundarySec: freezeAdjustedPlacements[i + 1].startMs / 1000,
+            }));
+          }
+
           // Export — use full config so output matches argo pipeline
           await exportVideo({
             demoName,
@@ -1063,6 +1093,7 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             motionBlur: ec?.motionBlur,
             freezeSpecs: previewResolvedFreezes.length > 0 ? previewResolvedFreezes : undefined,
             overlayPngs,
+            shaderTransitions: previewShaderTransitions,
           });
 
           // Switch to serving the new MP4
