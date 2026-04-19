@@ -83,7 +83,7 @@ describe('exportVideo', () => {
     expect(args).toEqual([
       '-i', '.argo/my-demo/video.mp4',
       '-i', '.argo/my-demo/narration-aligned.wav',
-      '-vf', 'scale=in_range=pc:out_range=tv',
+      '-vf', 'scale=in_range=pc:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv',
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
       '-preset', 'slow',
@@ -160,7 +160,7 @@ describe('exportVideo', () => {
     const vfIdx = (args as string[]).indexOf('-vf');
     expect(vfIdx).toBeGreaterThan(-1);
     expect((args as string[])[vfIdx + 1]).toBe(
-      'tpad=stop_mode=clone:stop_duration=0.5,scale=1920:1080:flags=lanczos,scale=in_range=pc:out_range=tv'
+      'tpad=stop_mode=clone:stop_duration=0.5,scale=1920:1080:flags=lanczos,scale=in_range=pc:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv'
     );
   });
 
@@ -662,6 +662,12 @@ describe('exportVideo', () => {
     expect(a).toContain('-color_range');
     expect(a[a.indexOf('-color_range') + 1]).toBe('tv');
 
+    // Frame-level setparams for GPU encoders (videotoolbox/nvenc/vaapi don't
+    // honor container-level flags — setparams embeds metadata in the stream).
+    const vfIdx2 = a.indexOf('-vf');
+    expect(vfIdx2).toBeGreaterThan(-1);
+    expect(a[vfIdx2 + 1]).toContain('setparams=color_primaries=bt709');
+
     // Fixed timescale
     expect(a).toContain('-video_track_timescale');
     expect(a[a.indexOf('-video_track_timescale') + 1]).toBe('90000');
@@ -712,6 +718,11 @@ describe('exportVideo', () => {
     expect(a[a.indexOf('-color_trc:v') + 1]).toBe('bt709');
     expect(a).toContain('-color_range');
     expect(a[a.indexOf('-color_range') + 1]).toBe('tv');
+
+    // Frame-level setparams for GPU encoders — blur-fill uses filter_complex.
+    const fcIdx2 = a.indexOf('-filter_complex');
+    expect(fcIdx2).toBeGreaterThan(-1);
+    expect(a[fcIdx2 + 1]).toContain('setparams=color_primaries=bt709');
 
     // Fixed timescale
     expect(a).toContain('-video_track_timescale');

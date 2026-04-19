@@ -287,6 +287,10 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   // Chrome renders full-range RGB (0-255); H.264 expects TV range (16-235).
   // Convert so blacks don't clip and contrast matches on compliant players.
   vFilters.push('scale=in_range=pc:out_range=tv');
+  // Tag color space at the frame level so metadata flows to the output stream
+  // regardless of encoder. libx264's VUI (-x264-params) honors these flags
+  // natively, but videotoolbox/nvenc/vaapi do not — setparams makes it universal.
+  vFilters.push('setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv');
 
   // Note: VAAPI format=nv12,hwupload is deferred to AFTER all software filters
   // (transitions, camera moves, watermark, sharpen, etc.) — see below.
@@ -668,7 +672,7 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       `split[bg][fg]`,
       `[bg]scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH},boxblur=20:5[blurred]`,
       `[fg]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease[scaled]`,
-      `[blurred][scaled]overlay=(W-w)/2:(H-h)/2,scale=in_range=pc:out_range=tv`,
+      `[blurred][scaled]overlay=(W-w)/2:(H-h)/2,scale=in_range=pc:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv`,
     ].join(';');
 
     console.log(`  Exporting ${format} (blur-fill) → ${formatPath}`);
