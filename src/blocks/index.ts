@@ -1,4 +1,5 @@
 import type { BlockDefinition } from './types.js';
+import { xPostBlock } from './x-post/template.js';
 
 /**
  * Compile-time registry. Each block is a self-contained folder under
@@ -9,8 +10,9 @@ import type { BlockDefinition } from './types.js';
  * while still enforcing that every entry conforms to `BlockDefinition`.
  */
 export const BLOCK_REGISTRY = {
-  // Populated in subsequent tasks.
-} as const satisfies Record<string, BlockDefinition>;
+  'x-post': xPostBlock,
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+} as const satisfies Record<string, BlockDefinition<any>>;
 
 Object.freeze(BLOCK_REGISTRY);
 

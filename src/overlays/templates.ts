@@ -1,5 +1,6 @@
 import type { OverlayCue } from './types.js';
 import type { BackgroundTheme } from './zones.js';
+import { getBlock, isValidBlockName } from '../blocks/index.js';
 
 export interface TemplateResult {
   contentHtml: string;
@@ -168,7 +169,17 @@ export function renderTemplate(cue: OverlayCue, theme: BackgroundTheme = 'dark')
       return imageCard(cue.src, theme, cue.title, cue.body);
     case 'arrow':
       return arrow(theme, cue.direction, cue.label, cue.color, cue.size);
-    case 'block':
-      throw new Error('block rendering not yet implemented');
+    case 'block': {
+      if (!isValidBlockName(cue.block)) {
+        throw new Error(
+          `Overlay references unknown block "${cue.block}". ` +
+          `Check the block name against src/blocks/ or run \`argo validate <demo>\`.`,
+        );
+      }
+      const block = getBlock(cue.block);
+      // Merge defaults under user-provided props so missing fields fill in.
+      const merged = { ...block.defaultProps, ...cue.props };
+      return block.render(merged as never, theme);
+    }
   }
 }
