@@ -281,6 +281,7 @@ export: {
 - **Speed ramp:** Compresses inter-scene gaps (navigation, page loads) to keep demos tight. `gapSpeed: 2.0` = 2× speed for gaps. Only gaps > `minGapMs` (default 500ms) are affected.
 - **Formats:** `1:1` (square), `9:16` (vertical), `gif` (palette-optimized animated GIF). Both `1:1` and `9:16` use **blur-fill** — the source is scaled to fit, overlaid on a blurred version of itself. No more hard crop clipping.
 - **Audio:** `audio: { loudnorm: true }` applies EBU R128 loudness normalization (-16 LUFS). Makes voiceover consistent across engines and scenes.
+- **Export quality:** Output is BT.709-tagged H.264 with TV range, x264 adaptive quantization (kills gradient banding), and GPU encoder auto-detection. Set `ARGO_USE_GPU=0` for deterministic libx264 builds (e.g., CI).
 - **Variants:** Re-record at different viewports for pixel-perfect multi-format. TTS runs once, then pipeline records + exports per variant. Output: `videos/<demo>-<variant>.mp4`. Much better than blur-fill for responsive content.
 - **Background music:** `audio.music` loops a track under narration at `musicVolume`, with 2-second fade-out. Or generate music from a text prompt in preview (MusicGen + WebGPU).
 - **Watermark:** `watermark: { src, position, opacity, margin }` overlays a PNG at any corner. Applied as the last video filter.

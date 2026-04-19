@@ -37,6 +37,28 @@ The system is a 4-step pipeline: **TTS → Record → Align → Export**
 - **Record** (`src/record.ts`): Runs Playwright demo script, captures video (WebM) and timing marks (`.timing.json`). Generates a dynamic Playwright config on-the-fly.
 - **Align** (`src/tts/align.ts`): Places audio clips at scene timestamps from timing data. Prevents overlap with 100ms gaps. Mixes into single WAV (Float32, 24kHz).
 - **Export** (`src/export.ts`): Merges video + aligned audio via ffmpeg into final MP4. Supports optional MP4 thumbnail embedding via `export.thumbnailPath` config (ffmpeg attached_pic stream). CRITICAL: `-shortest` must be skipped when thumbnail is present — PNG has 0 duration and truncates the entire output. Embeds chapter markers from scene placements via ffmpeg metadata. Input indices are dynamic based on presence of chapters/thumbnail. Silent mode: when no `narration-aligned.wav` exists, exports video-only (no audio input, no `-c:a`, no `-shortest`). Shows a progress bar during encoding when total duration is known (uses ffmpeg's `-progress pipe:1`). Supports multi-format export: `1:1` (square blur-fill), `9:16` (vertical blur-fill), and `gif` (two-pass palette-optimized animated GIF). Audio loudnorm: `export.audio.loudnorm` applies EBU R128 (-16 LUFS) via `-af loudnorm` or inside `filter_complex` when transitions are active. Viewport-native variants: `export.variants` re-records at different viewports (TTS shared, record+export per variant).
+### Export Quality (`src/export.ts`, `src/gpu-encoder.ts`)
+
+Every H.264 output is tagged BT.709 color space at container level (`-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv`) and includes VUI metadata (`colorprim=bt709:transfer=bt709:colormatrix=bt709` inside `-x264-params`). Chrome screenshots output sRGB which maps to BT.709 — tagging prevents Safari/TV color shifts.
+
+libx264 is tuned with `aq-mode=3:aq-strength=0.8:deblock=1,1` — redistributes bits to dark flat regions, kills gradient banding on dark-theme demos.
+
+`scale=in_range=pc:out_range=tv` is appended to the video filter chain — converts Chrome's full-range RGB (0-255) to H.264 TV range (16-235). Prevents crushed blacks on standards-compliant players.
+
+GPU encoder detection via `src/gpu-encoder.ts` probes `ffmpeg -encoders` at export time (cached per-process). Prefers NVENC > VideoToolbox > VAAPI > QSV > libx264. Per-encoder flags:
+- NVENC: `-preset {preset} -cq {crf}`
+- VideoToolbox: `-q:v {100 - crf*2} -allow_sw 1`
+- VAAPI: `-qp {crf}` + `-vaapi_device /dev/dri/renderD128` + `format=nv12,hwupload` filter chain
+- QSV: `-preset {preset} -global_quality {crf}`
+
+Opt out via `ARGO_USE_GPU=0` for deterministic CI (libx264 fallback).
+
+`-x264-params` does not apply when using a GPU encoder — container color tags cover those cases since GPU encoders don't have a `-x264-params` equivalent. Quality parity is close but not identical to libx264 at the same CRF — expected trade-off for the speedup.
+
+A fixed 90 kHz timescale (`-video_track_timescale 90000`) is set on all outputs for consistent A/V timing across platforms.
+
+Both the primary export path and blur-fill format variants (1:1, 9:16) are encoder-aware.
+
 - **Transitions** (`src/transitions.ts`): Scene transitions at scene boundaries. Uses `filter_complex` with `split` → `trim` → `fade` → `concat` for fade-through-black and dissolve (the only approach that supports multiple boundaries — ffmpeg's `fade` filter only works once per stream). Types: `fade-through-black` (full black dip), `dissolve` (shorter dip-to-black, not a true crossfade), `wipe-left`/`wipe-right` (directional drawbox mask). Fade-out ends one frame before the cut (fps-aware) to prevent keyframe flash. Content changes must happen BEFORE `narration.mark()` so the transition fades between old and new content. Use `durationMs: 2000`+ for visible transitions (500ms is too fast). Configured via `export.transition` in config.
 - **Speed Ramp** (`src/speed-ramp.ts`): Timeline-first speed ramp — planned before export so chapters, subtitles, and extra formats reflect ramped timing. Configured via `export.speedRamp: { gapSpeed, minGapMs }`. Uses `setpts` (video) and `atempo` (audio) filters.
 - **Progress** (`src/progress.ts`): Wraps ffmpeg execution with `-progress pipe:1` to parse `out_time_us` and render a terminal progress bar showing encoding percentage. Used by the pipeline when `totalDurationMs` is known.

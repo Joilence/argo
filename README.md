@@ -402,6 +402,25 @@ export: {
 - **Loudnorm** — EBU R128 loudness normalization. Makes voiceover volume consistent across TTS engines and scenes.
 - **Background music** — loops to fill the video, mixed at a constant low volume under narration, 2-second fade-out at the end. Works with silent demos too (music becomes the sole audio track).
 
+### Export Quality
+
+Argo's H.264 output is tagged BT.709 color space, uses x264 adaptive quantization (`aq-mode=3`) to reduce banding on gradients, and converts Chrome's full-range RGB to H.264 TV range. Tags ensure colors match across Safari, TVs, and mobile players.
+
+**GPU encoding.** Argo auto-detects GPU encoders and uses them when available:
+
+- macOS: `h264_videotoolbox`
+- NVIDIA: `h264_nvenc`
+- Linux/AMD: `h264_vaapi`
+- Intel: `h264_qsv`
+
+Typical speedup: 3-10x on macOS, 5-15x on NVIDIA. Falls back to libx264 when no GPU encoder is available.
+
+Disable GPU encoding with `ARGO_USE_GPU=0` (e.g., for deterministic CI builds):
+
+```bash
+ARGO_USE_GPU=0 argo pipeline my-demo
+```
+
 ### Studio Polish
 
 ```js
