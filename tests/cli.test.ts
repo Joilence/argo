@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../src/config.js', () => ({
   loadConfig: vi.fn(),
+  resolveDemoConfigPath: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../src/record.js', () => ({

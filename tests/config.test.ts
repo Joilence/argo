@@ -214,3 +214,48 @@ describe('loadConfig', () => {
     expect(config.demosDir).toBe('from-ts');
   });
 });
+
+describe('resolveDemoConfigPath', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'argo-demo-config-'));
+    await mkdir(join(tmpDir, 'demos'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns undefined when no demo config exists', async () => {
+    const { resolveDemoConfigPath } = await import('../src/config.js');
+    const result = await resolveDemoConfigPath(tmpDir, 'my-demo');
+    expect(result).toBeUndefined();
+  });
+
+  it('locates demos/<name>.config.mjs', async () => {
+    const { resolveDemoConfigPath } = await import('../src/config.js');
+    const path = join(tmpDir, 'demos', 'showcase.config.mjs');
+    await writeFile(path, `export default { demosDir: 'ignored' };`);
+    const result = await resolveDemoConfigPath(tmpDir, 'showcase');
+    expect(result).toBe(path);
+  });
+
+  it('prefers .ts over .js over .mjs', async () => {
+    const { resolveDemoConfigPath } = await import('../src/config.js');
+    await writeFile(join(tmpDir, 'demos', 'd.config.ts'), `export default {};`);
+    await writeFile(join(tmpDir, 'demos', 'd.config.js'), `export default {};`);
+    await writeFile(join(tmpDir, 'demos', 'd.config.mjs'), `export default {};`);
+    const result = await resolveDemoConfigPath(tmpDir, 'd');
+    expect(result).toBe(join(tmpDir, 'demos', 'd.config.ts'));
+  });
+
+  it('respects a non-default demosDir when provided', async () => {
+    const { resolveDemoConfigPath } = await import('../src/config.js');
+    await mkdir(join(tmpDir, 'my-demos'), { recursive: true });
+    const path = join(tmpDir, 'my-demos', 'alt.config.mjs');
+    await writeFile(path, `export default {};`);
+    const result = await resolveDemoConfigPath(tmpDir, 'alt', 'my-demos');
+    expect(result).toBe(path);
+  });
+});

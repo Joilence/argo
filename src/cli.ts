@@ -2,7 +2,7 @@ import { Command, Option } from 'commander';
 import { basename } from 'node:path';
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { loadConfig, type ArgoConfig, type BrowserEngine } from './config.js';
+import { loadConfig, resolveDemoConfigPath, type ArgoConfig, type BrowserEngine } from './config.js';
 import { record } from './record.js';
 import { generateClips } from './tts/generate.js';
 import { exportVideo } from './export.js';
@@ -47,6 +47,22 @@ async function ensureTTSEngine(config: ArgoConfig): Promise<ArgoConfig> {
   return config;
 }
 
+/**
+ * Load config preferring a demo-scoped file (`demos/<name>.config.{ts,js,mjs}`)
+ * over the root `argo.config.*`. Explicit `-c` flag always wins.
+ *
+ * When `demoName` is undefined (e.g., pipeline --all or preview dashboard),
+ * falls back to root config.
+ */
+async function loadConfigForDemo(demoName: string | undefined, explicitPath?: string): Promise<ArgoConfig> {
+  if (explicitPath) return loadConfig(process.cwd(), explicitPath);
+  if (demoName) {
+    const demoConfigPath = await resolveDemoConfigPath(process.cwd(), demoName);
+    if (demoConfigPath) return loadConfig(process.cwd(), demoConfigPath);
+  }
+  return loadConfig(process.cwd(), undefined);
+}
+
 export function createProgram(): Command {
   const require = createRequire(import.meta.url);
   const { version } = require('../package.json');
@@ -67,7 +83,7 @@ export function createProgram(): Command {
     .action(async (demo: string, cmdOpts: { browser?: string; baseUrl?: string; headed?: boolean }) => {
       validateDemoName(demo);
       const configPath = program.opts().config;
-      const config = await loadConfig(process.cwd(), configPath);
+      const config = await loadConfigForDemo(demo, configPath);
       const baseURL = cmdOpts.baseUrl ?? config.baseURL;
       if (!baseURL) {
         throw new Error('baseURL is required but not set. Set it in argo.config.js, pass --config, or use --base-url.');
@@ -97,7 +113,8 @@ export function createProgram(): Command {
     .description('Generate TTS clips from a manifest file')
     .action(async (manifest: string) => {
       const configPath = program.opts().config;
-      const config = await ensureTTSEngine(await loadConfig(process.cwd(), configPath));
+      const demoName = basename(manifest).replace(/\.scenes\.json$/, '').replace(/\.voiceover\.json$/, '').replace(/\.json$/, '');
+      const config = await ensureTTSEngine(await loadConfigForDemo(demoName, configPath));
       await generateClips({
         manifestPath: manifest,
         demoName: basename(manifest).replace(/\.scenes\.json$/, '').replace(/\.voiceover\.json$/, '').replace(/\.json$/, ''),
@@ -113,7 +130,7 @@ export function createProgram(): Command {
     .action(async (demo: string) => {
       validateDemoName(demo);
       const configPath = program.opts().config;
-      const config = await loadConfig(process.cwd(), configPath);
+      const config = await loadConfigForDemo(demo, configPath);
       const demoDir = `.argo/${demo}`;
       const timingPath = `${demoDir}/.timing.json`;
       const manifestPath = `${config.demosDir}/${demo}.scenes.json`;
@@ -254,7 +271,7 @@ export function createProgram(): Command {
     .option('--all', 'run pipeline for all demos in demosDir')
     .action(async (demo: string | undefined, cmdOpts: { browser?: string; baseUrl?: string; headed?: boolean; all?: boolean }) => {
       const configPath = program.opts().config;
-      const loaded = await ensureTTSEngine(await loadConfig(process.cwd(), configPath));
+      const loaded = await ensureTTSEngine(await loadConfigForDemo(demo, configPath));
       let config = cmdOpts.browser
         ? { ...loaded, video: { ...loaded.video, browser: cmdOpts.browser as BrowserEngine } }
         : loaded;
@@ -282,7 +299,7 @@ export function createProgram(): Command {
     .action(async (demo: string) => {
       validateDemoName(demo);
       const configPath = program.opts().config;
-      const config = await loadConfig(process.cwd(), configPath);
+      const config = await loadConfigForDemo(demo, configPath);
       const result = await validateDemo({ demoName: demo, demosDir: config.demosDir });
 
       for (const err of result.errors) {
@@ -322,7 +339,7 @@ export function createProgram(): Command {
     .action(async (demo: string, cmdOpts: { gif?: boolean; gifWidth?: number; gifFps?: number; version?: string }) => {
       validateDemoName(demo);
       const configPath = program.opts().config;
-      const config = await loadConfig(process.cwd(), configPath);
+      const config = await loadConfigForDemo(demo, configPath);
       const { releasePrep } = await import('./release-prep.js');
       await releasePrep({
         demoName: demo,
@@ -344,7 +361,7 @@ export function createProgram(): Command {
     .action(async (demo: string, scene: string, cmdOpts: { format?: string; gifWidth?: number; gifFps?: number }) => {
       validateDemoName(demo);
       const configPath = program.opts().config;
-      const config = await loadConfig(process.cwd(), configPath);
+      const config = await loadConfigForDemo(demo, configPath);
       const { extractClip } = await import('./clip.js');
       const outputPath = await extractClip({
         demoName: demo,
@@ -363,7 +380,7 @@ export function createProgram(): Command {
     .option('--port <number>', 'server port (default: auto)', parseInt)
     .action(async (demo: string | undefined, cmdOpts: { port?: number }) => {
       const configPath = program.opts().config;
-      const config = await loadConfig(process.cwd(), configPath);
+      const config = await loadConfigForDemo(demo, configPath);
 
       if (!demo) {
         // Dashboard mode — list all demos
@@ -443,7 +460,7 @@ export function createProgram(): Command {
     .action(async (videoFile: string, cmdOpts: { demo?: string; force?: boolean }) => {
       if (cmdOpts.demo) validateDemoName(cmdOpts.demo);
       const configPath = program.opts().config;
-      const config = await loadConfig(process.cwd(), configPath);
+      const config = await loadConfigForDemo(cmdOpts.demo, configPath);
       const result = await importVideo({
         videoPath: videoFile,
         demo: cmdOpts.demo,

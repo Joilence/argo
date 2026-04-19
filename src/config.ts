@@ -222,6 +222,8 @@ const CONFIG_FILENAMES = [
   'argo.config.mjs',
 ];
 
+const DEMO_CONFIG_EXTENSIONS = ['.config.ts', '.config.js', '.config.mjs'];
+
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await access(filePath);
@@ -230,6 +232,26 @@ async function fileExists(filePath: string): Promise<boolean> {
     if (err?.code === 'ENOENT') return false;
     throw new Error(`Cannot access ${filePath}: ${err.message}`);
   }
+}
+
+/**
+ * Locate a demo-scoped config file if one exists.
+ * Searches `<demosDir>/<demoName>.config.{ts,js,mjs}` in order.
+ * Returns the absolute path, or undefined if none found.
+ *
+ * `demosDir` defaults to `demos/` under cwd; callers that've resolved a
+ * different demos directory should pass it explicitly.
+ */
+export async function resolveDemoConfigPath(
+  cwd: string,
+  demoName: string,
+  demosDir = 'demos',
+): Promise<string | undefined> {
+  for (const ext of DEMO_CONFIG_EXTENSIONS) {
+    const candidate = join(cwd, demosDir, `${demoName}${ext}`);
+    if (await fileExists(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 export async function loadConfig(
