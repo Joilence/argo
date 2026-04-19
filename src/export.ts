@@ -274,6 +274,9 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   if (deviceScaleFactor > 1 && outputWidth && outputHeight) {
     vFilters.push(`scale=${outputWidth}:${outputHeight}:flags=lanczos`);
   }
+  // Chrome renders full-range RGB (0-255); H.264 expects TV range (16-235).
+  // Convert so blacks don't clip and contrast matches on compliant players.
+  vFilters.push('scale=in_range=pc:out_range=tv');
 
   // Scene transitions
   let transitionComplex: { filterComplex: string; videoOutput: string; audioOutput: string | null } | null = null;

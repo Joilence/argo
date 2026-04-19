@@ -69,6 +69,7 @@ describe('exportVideo', () => {
     expect(args).toEqual([
       '-i', '.argo/my-demo/video.mp4',
       '-i', '.argo/my-demo/narration-aligned.wav',
+      '-vf', 'scale=in_range=pc:out_range=tv',
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
       '-preset', 'slow',
@@ -112,8 +113,11 @@ describe('exportVideo', () => {
     await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', tailPadMs: 1250 });
 
     const [, args] = mockedSpawnSync.mock.calls[0];
-    expect(args).toContain('-vf');
-    expect(args).toContain('tpad=stop_mode=clone:stop_duration=1.25');
+    const vfIdx = (args as string[]).indexOf('-vf');
+    expect(vfIdx).toBeGreaterThan(-1);
+    const vfValue = (args as string[])[vfIdx + 1];
+    expect(vfValue).toContain('tpad=stop_mode=clone:stop_duration=1.25');
+    expect(vfValue).toContain('scale=in_range=pc:out_range=tv');
   });
 
   it('adds lanczos downscale filter when deviceScaleFactor > 1', async () => {
@@ -124,8 +128,11 @@ describe('exportVideo', () => {
     });
 
     const [, args] = mockedSpawnSync.mock.calls[0];
-    expect(args).toContain('-vf');
-    expect(args).toContain('scale=1920:1080:flags=lanczos');
+    const vfIdx = (args as string[]).indexOf('-vf');
+    expect(vfIdx).toBeGreaterThan(-1);
+    const vfValue = (args as string[])[vfIdx + 1];
+    expect(vfValue).toContain('scale=1920:1080:flags=lanczos');
+    expect(vfValue).toContain('scale=in_range=pc:out_range=tv');
   });
 
   it('combines tpad and downscale filters in one -vf chain', async () => {
@@ -139,7 +146,7 @@ describe('exportVideo', () => {
     const vfIdx = (args as string[]).indexOf('-vf');
     expect(vfIdx).toBeGreaterThan(-1);
     expect((args as string[])[vfIdx + 1]).toBe(
-      'tpad=stop_mode=clone:stop_duration=0.5,scale=1920:1080:flags=lanczos'
+      'tpad=stop_mode=clone:stop_duration=0.5,scale=1920:1080:flags=lanczos,scale=in_range=pc:out_range=tv'
     );
   });
 
@@ -277,7 +284,8 @@ describe('exportVideo', () => {
     expect(a).toContain('-map_metadata');
     expect(a).toContain('2');
     expect(a.filter(x => x === '-map').length).toBe(3);
-    expect(a).toContain('[outv]');
+    // range conversion filter appended after speed ramp; final video label is outvfinal
+    expect(a).toContain('[outvfinal]');
     expect(a).toContain('[outa]');
     expect(a).toContain('3:v');
     expect(a).toContain('-disposition:v:1');
@@ -643,6 +651,22 @@ describe('exportVideo', () => {
     // Fixed timescale
     expect(a).toContain('-video_track_timescale');
     expect(a[a.indexOf('-video_track_timescale') + 1]).toBe('90000');
+  });
+
+  // ---------- Full-range to TV-range conversion ----------
+
+  it('includes scale=in_range=pc:out_range=tv in video filter args', async () => {
+    setupHappy();
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out' });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+
+    // Should appear as a -vf filter
+    const vfIdx = a.indexOf('-vf');
+    expect(vfIdx).toBeGreaterThan(-1);
+    const vfValue = a[vfIdx + 1];
+    expect(vfValue).toContain('scale=in_range=pc:out_range=tv');
   });
 
   it('embeds BT.709 color metadata in blur-fill format variant args', async () => {
