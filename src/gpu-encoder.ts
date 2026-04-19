@@ -6,6 +6,7 @@ const execFileP = promisify(execFile);
 export type GpuEncoder = 'nvenc' | 'videotoolbox' | 'vaapi' | 'qsv' | null;
 
 let cached: GpuEncoder | undefined;
+let probed = false;
 
 /**
  * Probe ffmpeg for a GPU-accelerated H.264 encoder.
@@ -14,18 +15,25 @@ let cached: GpuEncoder | undefined;
  * Returns `null` if no GPU encoder is available — caller should fall back
  * to libx264.
  *
- * Result is cached for the process lifetime. Call `resetGpuEncoderCache()`
+ * Result is cached for the process lifetime (including null — ffmpeg's encoder
+ * list does not change during a process run). Call `resetGpuEncoderCache()`
  * in tests if you need to re-probe.
  */
 export async function detectGpuEncoder(): Promise<GpuEncoder> {
-  if (cached !== undefined) return cached;
-  const result = await probeEncoders();
-  if (result !== null) cached = result;
-  return result;
+  if (probed) return cached as GpuEncoder;
+  cached = await probeEncoders();
+  probed = true;
+  return cached;
 }
 
 export function resetGpuEncoderCache(): void {
   cached = undefined;
+  probed = false;
+}
+
+/** Exposed for tests only — returns true once detectGpuEncoder() has probed at least once. */
+export function isGpuEncoderProbed(): boolean {
+  return probed;
 }
 
 async function probeEncoders(): Promise<GpuEncoder> {

@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { detectGpuEncoder, getGpuEncoderName, resetGpuEncoderCache, isGpuEncodingEnabled } from '../src/gpu-encoder.js';
+import {
+  detectGpuEncoder,
+  getGpuEncoderName,
+  resetGpuEncoderCache,
+  isGpuEncoderProbed,
+  isGpuEncodingEnabled,
+} from '../src/gpu-encoder.js';
 
 describe('gpu-encoder', () => {
   beforeEach(() => resetGpuEncoderCache());
@@ -9,10 +15,32 @@ describe('gpu-encoder', () => {
     expect(enc === null || ['nvenc', 'videotoolbox', 'vaapi', 'qsv'].includes(enc)).toBe(true);
   });
 
-  it('caches the detection result', async () => {
+  it('caches the detection result — second call returns same value', async () => {
     const a = await detectGpuEncoder();
     const b = await detectGpuEncoder();
     expect(a).toBe(b);
+  });
+
+  it('caches null result — probed flag is set after first call so probe does not re-run', async () => {
+    // After the first detectGpuEncoder() call, isGpuEncoderProbed() must be
+    // true regardless of whether a GPU was found. A second call must return
+    // the same value without flipping probed back to false.
+    expect(isGpuEncoderProbed()).toBe(false);
+    const first = await detectGpuEncoder();
+    expect(isGpuEncoderProbed()).toBe(true);
+
+    const second = await detectGpuEncoder();
+    // Both must agree — including when first is null (no-GPU machine).
+    expect(second).toBe(first);
+    // Still probed — not reset by the second call.
+    expect(isGpuEncoderProbed()).toBe(true);
+  });
+
+  it('resetGpuEncoderCache clears the probed flag so next call re-probes', async () => {
+    await detectGpuEncoder();
+    expect(isGpuEncoderProbed()).toBe(true);
+    resetGpuEncoderCache();
+    expect(isGpuEncoderProbed()).toBe(false);
   });
 
   it('getGpuEncoderName maps encoder to ffmpeg codec name for h264', () => {
