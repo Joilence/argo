@@ -123,29 +123,35 @@ function buildFadeFilterComplex(
   }
 }
 
+export interface ShaderDeferredMarker {
+  shaderDeferred: true;
+}
+
 /**
  * Generate ffmpeg transition filters for scene boundaries.
  *
  * Returns either:
  * - Simple string[] for -vf (wipe transitions only)
  * - A filterComplex object for filter_complex (fade/dissolve — uses split+trim+fade+concat)
+ * - A ShaderDeferredMarker sentinel when type === 'shader' (export.ts wires PNG sequences)
  */
 export function buildTransitionFilters(
   placements: Placement[],
   transition: TransitionConfig,
   hasAudio?: boolean,
   fps: number = 30,
-): string[] | { filterComplex: string; videoOutput: string; audioOutput: string | null } {
+): string[] | { filterComplex: string; videoOutput: string; audioOutput: string | null } | ShaderDeferredMarker {
   if (placements.length < 2) return [];
 
   const durMs = transition.durationMs ?? 500;
   const durSec = durMs / 1000;
   const halfDur = durSec / 2;
 
-  // Shader transitions are handled by a dedicated pre-pass (shader-render.ts).
-  // Return no-op here — Task 8 wires the real splice behavior.
+  // Shader transitions are composed via shader-splice.ts at export time because
+  // they need the extra ffmpeg input indices for the PNG sequences. Return a
+  // sentinel so export.ts knows to take the shader path.
   if (transition.type === 'shader') {
-    return [];
+    return { shaderDeferred: true };
   }
 
   if (transition.type === 'wipe-left' || transition.type === 'wipe-right') {

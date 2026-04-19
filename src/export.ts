@@ -303,10 +303,11 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
     if (Array.isArray(transitionResult)) {
       // Simple -vf filters (wipe)
       vFilters.push(...transitionResult);
-    } else if (transitionResult.filterComplex) {
+    } else if ('filterComplex' in transitionResult) {
       // Complex filter graph (fade/dissolve — split+trim+fade+concat)
       transitionComplex = transitionResult;
     }
+    // else: shaderDeferred sentinel — shader path handled separately in Task 9
   }
 
   if (transitionComplex) {
