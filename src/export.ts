@@ -288,10 +288,8 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   // Convert so blacks don't clip and contrast matches on compliant players.
   vFilters.push('scale=in_range=pc:out_range=tv');
 
-  // VAAPI requires pixel format conversion and hw upload at end of sw filter chain
-  if (gpuEncoder === 'vaapi') {
-    vFilters.push('format=nv12', 'hwupload');
-  }
+  // Note: VAAPI format=nv12,hwupload is deferred to AFTER all software filters
+  // (transitions, camera moves, watermark, sharpen, etc.) — see below.
 
   // Scene transitions
   let transitionComplex: { filterComplex: string; videoOutput: string; audioOutput: string | null } | null = null;
@@ -493,6 +491,28 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       audioSource = 'anorm';
     } else {
       useLoudnormSimple = true;
+    }
+  }
+
+  // VAAPI: hwupload must come AFTER all software filters (trim, fade, scale, sharpen, etc.)
+  // because VAAPI surfaces cannot pass through software filter chains.
+  // Inject as the final video filter in the graph, just before the encoder.
+  // If we already have a -vf arg (simple path, no filter_complex), append to the last
+  // -vf value rather than pushing a second one (ffmpeg only accepts one -vf).
+  if (gpuEncoder === 'vaapi') {
+    if (filterParts.length > 0 || videoSource !== '0:v') {
+      // filter_complex path: add as last graph node so it runs after all sw filters
+      filterParts.push(`[${videoSource}]format=nv12,hwupload[vaapi_ready]`);
+      videoSource = 'vaapi_ready';
+    } else {
+      // Simple -vf path: check if vFilters were already emitted via -vf
+      const vfArgIdx = args.lastIndexOf('-vf');
+      if (vfArgIdx >= 0) {
+        // Append to existing -vf chain (scale=in_range=pc... already there)
+        args[vfArgIdx + 1] += ',format=nv12,hwupload';
+      } else {
+        args.push('-vf', 'format=nv12,hwupload');
+      }
     }
   }
 

@@ -800,7 +800,7 @@ describe('exportVideo', () => {
     expect(a).not.toContain('-crf');
   });
 
-  it('uses -qp for vaapi encoder and adds hwupload to vFilters', async () => {
+  it('uses -qp for vaapi encoder and appends hwupload after scale in -vf (no filter_complex)', async () => {
     setupHappy();
     mockedDetectGpuEncoder.mockResolvedValue('vaapi');
     mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc === 'vaapi' ? 'h264_vaapi' : 'libx264');
@@ -817,10 +817,52 @@ describe('exportVideo', () => {
     const firstInputIdx = a.indexOf('-i');
     expect(deviceIdx).toBeGreaterThan(-1);
     expect(deviceIdx).toBeLessThan(firstInputIdx);
-    // hwupload should appear in the vf/filter chain
+    // With no filter_complex features, hwupload is appended to the -vf chain
+    // (after scale=in_range=pc:out_range=tv) — not as a separate -vf arg
     const vfIdx = a.indexOf('-vf');
-    if (vfIdx > -1) {
-      expect(a[vfIdx + 1]).toContain('hwupload');
+    expect(vfIdx).toBeGreaterThan(-1);
+    const vfValue = a[vfIdx + 1];
+    expect(vfValue).toContain('scale=in_range=pc:out_range=tv');
+    expect(vfValue).toContain('hwupload');
+    // hwupload must come AFTER scale (software filter before hw upload)
+    expect(vfValue.indexOf('hwupload')).toBeGreaterThan(vfValue.indexOf('scale=in_range=pc:out_range=tv'));
+    // Only one -vf flag (not two)
+    expect(a.filter(x => x === '-vf').length).toBe(1);
+  });
+
+  it('VAAPI: hwupload deferred to last filter_complex node when transitions are active', async () => {
+    setupHappy();
+    mockedDetectGpuEncoder.mockResolvedValue('vaapi');
+    mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc === 'vaapi' ? 'h264_vaapi' : 'libx264');
+
+    // Transitions force a filter_complex graph (split+trim+fade+concat)
+    await exportVideo({
+      demoName: 'demo', argoDir: '.argo', outputDir: 'out',
+      placements: [
+        { scene: 'a', startMs: 0, durationMs: 3000, text: 'A' },
+        { scene: 'b', startMs: 3000, durationMs: 3000, text: 'B' },
+      ],
+      transition: { type: 'fade-through-black', durationMs: 500 },
+    });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+    // Must use filter_complex (fade transitions require it)
+    expect(a).toContain('-filter_complex');
+    const fcIdx = a.indexOf('-filter_complex');
+    const fc = a[fcIdx + 1];
+
+    // hwupload must be present in the filter_complex
+    expect(fc).toContain('hwupload');
+    // hwupload must come AFTER split and fade/trim — i.e., after the concat output
+    const splitPos = fc.indexOf('split=');
+    const hwuploadPos = fc.indexOf('hwupload');
+    expect(hwuploadPos).toBeGreaterThan(splitPos);
+
+    // No standalone -vf for hwupload (would conflict with filter_complex)
+    const vfIdx = a.indexOf('-vf');
+    if (vfIdx >= 0) {
+      expect(a[vfIdx + 1]).not.toContain('hwupload');
     }
   });
 
