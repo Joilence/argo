@@ -11,7 +11,7 @@ export interface ValidateResult {
   warnings: string[];
 }
 
-export function validateDemo(options: ValidateOptions): ValidateResult {
+export async function validateDemo(options: ValidateOptions): Promise<ValidateResult> {
   const { demoName, demosDir } = options;
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -53,7 +53,7 @@ export function validateDemo(options: ValidateOptions): ValidateResult {
       if (!Array.isArray(scenes)) {
         errors.push(`Scenes manifest must be a JSON array`);
       } else {
-        const validTypes = new Set(['lower-third', 'headline-card', 'callout', 'image-card']);
+        const validTypes = new Set(['lower-third', 'headline-card', 'callout', 'image-card', 'arrow', 'block']);
         const validPlacements = new Set(['bottom-center', 'top-left', 'top-right', 'bottom-left', 'bottom-right', 'center']);
         const validMotions = new Set(['none', 'fade-in', 'slide-in']);
 
@@ -78,6 +78,18 @@ export function validateDemo(options: ValidateOptions): ValidateResult {
             }
             if (ov.motion && !validMotions.has(ov.motion)) {
               errors.push(`Scene "${entry.scene}" overlay: unknown motion "${ov.motion}"`);
+            }
+            // Validate block-specific fields
+            if (ov.type === 'block') {
+              const { isValidBlockName } = await import('./blocks/index.js');
+              if (typeof ov.block !== 'string' || !ov.block) {
+                errors.push(`Scene "${entry.scene}" overlay: "block" field is required when type="block"`);
+              } else if (!isValidBlockName(ov.block)) {
+                errors.push(`Scene "${entry.scene}" overlay: unknown block "${ov.block}"`);
+              }
+              if (!ov.props || typeof ov.props !== 'object') {
+                errors.push(`Scene "${entry.scene}" overlay: "props" object is required when type="block"`);
+              }
             }
           }
         }

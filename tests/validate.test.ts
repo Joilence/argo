@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { validateDemo } from '../src/validate.js';
@@ -16,8 +17,8 @@ describe('validateDemo', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('errors when demo script is missing', () => {
-    const result = validateDemo({ demoName: 'missing', demosDir: join(dir, 'demos') });
+  it('errors when demo script is missing', async () => {
+    const result = await validateDemo({ demoName: 'missing', demosDir: join(dir, 'demos') });
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain('Demo script not found');
   });
@@ -29,7 +30,7 @@ describe('validateDemo', () => {
         page.goto('/');
       });
     `);
-    const result = validateDemo({ demoName: 'bad', demosDir: join(dir, 'demos') });
+    const result = await validateDemo({ demoName: 'bad', demosDir: join(dir, 'demos') });
     expect(result.errors.some(e => e.includes("@argo-video/cli"))).toBe(true);
   });
 
@@ -40,7 +41,7 @@ describe('validateDemo', () => {
         await page.goto('/');
       });
     `);
-    const result = validateDemo({ demoName: 'empty', demosDir: join(dir, 'demos') });
+    const result = await validateDemo({ demoName: 'empty', demosDir: join(dir, 'demos') });
     expect(result.errors).toHaveLength(0);
     expect(result.warnings.some(w => w.includes('No narration.mark()'))).toBe(true);
   });
@@ -52,7 +53,7 @@ describe('validateDemo', () => {
         narration.mark('intro');
       });
     `);
-    const result = validateDemo({ demoName: 'novoice', demosDir: join(dir, 'demos') });
+    const result = await validateDemo({ demoName: 'novoice', demosDir: join(dir, 'demos') });
     expect(result.warnings.some(w => w.includes('No scenes manifest found'))).toBe(true);
   });
 
@@ -68,7 +69,7 @@ describe('validateDemo', () => {
       { scene: 'intro', text: 'Hello' },
       { scene: 'typo-scene', text: 'Oops' },
     ]));
-    const result = validateDemo({ demoName: 'mismatch', demosDir: join(dir, 'demos') });
+    const result = await validateDemo({ demoName: 'mismatch', demosDir: join(dir, 'demos') });
     expect(result.warnings.some(w => w.includes('"typo-scene" has no matching narration.mark()'))).toBe(true);
     expect(result.warnings.some(w => w.includes('"ending" has no entry in scenes manifest'))).toBe(true);
   });
@@ -79,7 +80,7 @@ describe('validateDemo', () => {
       test('badjson', async ({ page, narration }) => { narration.mark('a'); });
     `);
     await writeFile(join(dir, 'demos', 'badjson.scenes.json'), '{ not valid json');
-    const result = validateDemo({ demoName: 'badjson', demosDir: join(dir, 'demos') });
+    const result = await validateDemo({ demoName: 'badjson', demosDir: join(dir, 'demos') });
     expect(result.errors.some(e => e.includes('not valid JSON'))).toBe(true);
   });
 
@@ -95,7 +96,7 @@ describe('validateDemo', () => {
         overlay: { type: 'invalid-type', placement: 'invalid-zone', motion: 'invalid-motion' },
       },
     ]));
-    const result = validateDemo({ demoName: 'badoverlay', demosDir: join(dir, 'demos') });
+    const result = await validateDemo({ demoName: 'badoverlay', demosDir: join(dir, 'demos') });
     expect(result.errors.some(e => e.includes('unknown type'))).toBe(true);
     expect(result.errors.some(e => e.includes('unknown placement'))).toBe(true);
     expect(result.errors.some(e => e.includes('unknown motion'))).toBe(true);
@@ -114,7 +115,7 @@ describe('validateDemo', () => {
       { scene: 'intro', text: 'Welcome' },
       { scene: 'done', text: 'Goodbye' },
     ]));
-    const result = validateDemo({ demoName: 'good', demosDir: join(dir, 'demos') });
+    const result = await validateDemo({ demoName: 'good', demosDir: join(dir, 'demos') });
     expect(result.errors).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
   });
@@ -133,8 +134,50 @@ describe('validateDemo', () => {
         overlay: { type: 'lower-third', placement: 'bottom-center', motion: 'fade-in' },
       },
     ]));
-    const result = validateDemo({ demoName: 'withoverlay', demosDir: join(dir, 'demos') });
+    const result = await validateDemo({ demoName: 'withoverlay', demosDir: join(dir, 'demos') });
     expect(result.errors).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
+  });
+});
+
+describe('validate — block cues', () => {
+  let tmp: string;
+  let demosDir: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'argo-validate-blocks-'));
+    demosDir = join(tmp, 'demos');
+    mkdirSync(demosDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('accepts type="block" when the block exists', async () => {
+    writeFileSync(join(demosDir, 'd.demo.ts'), `import { test } from '@argo-video/cli'; narration.mark('s1');`);
+    writeFileSync(join(demosDir, 'd.scenes.json'), JSON.stringify([
+      { scene: 's1', overlay: { type: 'block', block: 'x-post', props: {} } },
+    ]));
+    const res = await validateDemo({ demoName: 'd', demosDir });
+    expect(res.errors).toEqual([]);
+  });
+
+  it('rejects unknown block names', async () => {
+    writeFileSync(join(demosDir, 'd.demo.ts'), `import { test } from '@argo-video/cli'; narration.mark('s1');`);
+    writeFileSync(join(demosDir, 'd.scenes.json'), JSON.stringify([
+      { scene: 's1', overlay: { type: 'block', block: 'nonexistent', props: {} } },
+    ]));
+    const res = await validateDemo({ demoName: 'd', demosDir });
+    expect(res.errors.some(e => /unknown block "nonexistent"/.test(e))).toBe(true);
+  });
+
+  it('accepts type="arrow" (regression — was missing from validTypes)', async () => {
+    writeFileSync(join(demosDir, 'd.demo.ts'), `import { test } from '@argo-video/cli'; narration.mark('s1');`);
+    writeFileSync(join(demosDir, 'd.scenes.json'), JSON.stringify([
+      { scene: 's1', overlay: { type: 'arrow', direction: 'down' } },
+    ]));
+    const res = await validateDemo({ demoName: 'd', demosDir });
+    expect(res.errors).toEqual([]);
   });
 });

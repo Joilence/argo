@@ -283,7 +283,7 @@ export function createProgram(): Command {
       validateDemoName(demo);
       const configPath = program.opts().config;
       const config = await loadConfig(process.cwd(), configPath);
-      const result = validateDemo({ demoName: demo, demosDir: config.demosDir });
+      const result = await validateDemo({ demoName: demo, demosDir: config.demosDir });
 
       for (const err of result.errors) {
         console.error(`  ERROR: ${err}`);
