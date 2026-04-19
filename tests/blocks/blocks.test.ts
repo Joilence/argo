@@ -156,6 +156,21 @@ describe('data-chart block', () => {
     }, 'dark');
     expect(result.contentHtml).toContain('Empty');
   });
+
+  it('escapes malicious accentColor to prevent SVG attribute injection', () => {
+    const result = renderTemplate({
+      type: 'block',
+      block: 'data-chart',
+      props: {
+        type: 'bar',
+        title: 'T',
+        values: [1, 2, 3],
+        accentColor: '#f00" /><script>alert(1)</script>',
+      },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('<script>alert(1)</script>');
+    expect(result.contentHtml).not.toContain('" /><script>');
+  });
 });
 
 describe('spotify-card block', () => {

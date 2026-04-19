@@ -61,7 +61,7 @@ function render(props: DataChartProps, theme: BackgroundTheme): TemplateResult {
   const bg = isDark ? 'rgba(20,20,22,0.85)' : 'rgba(255,255,255,0.9)';
   const fg = isDark ? '#f5f5f7' : '#1a1a1a';
   const muted = isDark ? 'rgba(245,245,247,0.55)' : 'rgba(26,26,26,0.55)';
-  const accent = props.accentColor ?? '#22c55e';
+  const accent = escapeHtml(props.accentColor ?? '#22c55e');
 
   const inner = props.type === 'line'
     ? renderLine(props.values, accent, muted)
