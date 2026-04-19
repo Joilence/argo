@@ -14,7 +14,7 @@ export default defineConfig({
   export: {
     preset: 'slow',
     crf: 23,
-    transition: { type: 'fade-through-black', durationMs: 2000 },
+    transition: { type: 'shader', shader: 'crosswarp', durationMs: 1200 },
     // speedRamp: { gapSpeed: 2.0, minGapMs: 600 },  // disabled for now — conflicts with transitions
     // formats: ['gif'],  // too long for GIF — use argo clip for scene-level GIFs
     audio: { loudnorm: true },

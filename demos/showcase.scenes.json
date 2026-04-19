@@ -75,13 +75,13 @@
   },
   {
     "scene": "export",
-    "text": "Export is where the polish lands. Add transitions, generate background music from a prompt right in the preview, stamp a watermark, freeze a hero frame, and ship subtitles, chapters, reports, and social formats from the same timeline.",
+    "text": "Export is where the polish lands. Add a shader transition, generate background music from a prompt right in the preview, stamp a watermark, freeze a hero frame, and ship subtitles, chapters, reports, and social formats from the same timeline — GPU-accelerated on every platform.",
     "speed": 0.92,
     "overlay": {
       "type": "headline-card",
       "kicker": "EXPORT",
       "title": "Smart export, not just encoding.",
-      "body": "Transitions, music, watermark, freeze-frame, chapters, formats — one timeline.",
+      "body": "Shader transitions, music, watermark, freeze-frame, chapters, GPU encoding — one timeline.",
       "placement": "top-right",
       "motion": "slide-in",
       "autoBackground": true
@@ -89,13 +89,13 @@
   },
   {
     "scene": "studio",
-    "text": "The studio polish pack. Frame your recording with padding, rounded corners, and a drop shadow on any background. Add motion blur to camera zooms, slow down a hero scene to half speed, and drop arrow annotations to guide the viewer's eye.",
+    "text": "The studio polish pack. Frame your recording with padding, rounded corners, and a drop shadow on any background. Drop in curated blocks for social posts, notifications, or metrics. Add motion blur to camera zooms, slow down a hero scene to half speed, and drop arrow annotations to guide the viewer's eye.",
     "speed": 0.92,
     "overlay": {
       "type": "headline-card",
       "kicker": "STUDIO POLISH",
       "title": "The Screen Studio look, in config.",
-      "body": "Frame, background, motion blur, per-scene speed, arrows — zero post-production.",
+      "body": "Frame, blocks, motion blur, per-scene speed, arrows — zero post-production.",
       "placement": "top-right",
       "motion": "slide-in",
       "autoBackground": true
