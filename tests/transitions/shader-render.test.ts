@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SHADERS, isValidShaderName, SHADER_NAMES } from '../../src/transitions/shaders/index.js';
@@ -75,5 +75,30 @@ describe('computeShaderHash', () => {
     writeFileSync(a, Buffer.from('different'));
     const h2 = computeShaderHash('crosswarp', 800, 30, 1920, 1080, a, b);
     expect(h1).not.toBe(h2);
+  });
+});
+
+describe('extractBoundaryFrame', () => {
+  const sampleVideo = join(process.cwd(), 'tests/fixtures/sample-2s.mp4');
+  const hasSample = existsSync(sampleVideo);
+
+  it.runIf(hasSample)('extracts a PNG at the given timestamp', async () => {
+    const { extractBoundaryFrame } = await import('../../src/transitions/shader-render.js');
+    const tmp = mkdtempSync(join(tmpdir(), 'argo-frame-'));
+    const out = join(tmp, 'frame.png');
+    await extractBoundaryFrame(sampleVideo, 1.0, out);
+    expect(existsSync(out)).toBe(true);
+    expect(statSync(out).size).toBeGreaterThan(100);
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it.runIf(hasSample)('throws a clear error when ffmpeg fails', async () => {
+    const { extractBoundaryFrame } = await import('../../src/transitions/shader-render.js');
+    const tmp = mkdtempSync(join(tmpdir(), 'argo-frame-err-'));
+    const out = join(tmp, 'frame.png');
+    await expect(
+      extractBoundaryFrame('/nonexistent/video.mp4', 1.0, out)
+    ).rejects.toThrow(/Failed to extract/);
+    rmSync(tmp, { recursive: true, force: true });
   });
 });
