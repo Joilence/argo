@@ -49,4 +49,33 @@ describe('buildShaderSpliceFilter', () => {
     expect(result.filterComplex).toMatch(/concat=n=3:v=1:a=0/);
     expect(result.audioOutput).toBeNull();
   });
+
+  it('clamps sceneEnd when a boundary is near the video start', () => {
+    // Without clamping, sceneEnd = 0.15 - 0.2 = -0.05 → invalid trim=0:-0.05
+    const result = buildShaderSpliceFilter({
+      totalDurationSec: 4.0,
+      boundaries: [{ boundarySec: 0.15, durationMs: 400, extraInputIndex: 2 }],
+      videoInputLabel: '[0:v]',
+      audioInputLabel: '[1:a]',
+      fps: 30,
+    });
+    // Scene A trim clamps to trim=0:0 (zero-length, ffmpeg accepts)
+    expect(result.filterComplex).toContain('trim=0.000:0.000');
+    // After transition window, cursor is 0.350 — rest of video is [0.350, 4.0]
+    expect(result.filterComplex).toContain('trim=0.350:4.000');
+  });
+
+  it('clamps transitionEnd when a boundary is near the video end', () => {
+    // Without clamping, transitionEnd = 2.85 + 0.2 = 3.05 > totalDuration 3.0
+    const result = buildShaderSpliceFilter({
+      totalDurationSec: 3.0,
+      boundaries: [{ boundarySec: 2.85, durationMs: 400, extraInputIndex: 2 }],
+      videoInputLabel: '[0:v]',
+      audioInputLabel: null,
+      fps: 30,
+    });
+    // Scene A runs to 2.65, transition ends clamped at 3.0, last segment is [3.0, 3.0]
+    expect(result.filterComplex).toContain('trim=0.000:2.650');
+    expect(result.filterComplex).toMatch(/concat=n=3/);
+  });
 });

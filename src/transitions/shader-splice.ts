@@ -37,8 +37,8 @@ export function buildShaderSpliceFilter(opts: ShaderSpliceOptions): ShaderSplice
   for (let i = 0; i < boundaries.length; i++) {
     const b = boundaries[i];
     const dHalf = b.durationMs / 2000;
-    const sceneEnd = b.boundarySec - dHalf;
-    const transitionEnd = b.boundarySec + dHalf;
+    const sceneEnd = Math.max(cursorSec, b.boundarySec - dHalf);
+    const transitionEnd = Math.min(opts.totalDurationSec, b.boundarySec + dHalf);
 
     const vSceneLabel = `ssv${i}`;
     parts.push(
