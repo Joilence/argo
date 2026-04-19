@@ -129,3 +129,31 @@ describe('yt-lower-third block', () => {
     expect(result.contentHtml).toContain('J');
   });
 });
+
+describe('data-chart block', () => {
+  it('renders title and SVG bars for type=bar', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'data-chart',
+      props: { type: 'bar', title: 'Signups', values: [10, 25, 40, 32, 55], labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Signups');
+    expect(result.contentHtml).toContain('<svg');
+    expect(result.contentHtml).toContain('<rect');
+  });
+
+  it('renders SVG polyline for type=line', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'data-chart',
+      props: { type: 'line', title: 'MRR', values: [100, 150, 220, 300] },
+    }, 'dark');
+    expect(result.contentHtml).toContain('<polyline');
+  });
+
+  it('handles empty values array without crashing', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'data-chart',
+      props: { type: 'bar', title: 'Empty', values: [] },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Empty');
+  });
+});
