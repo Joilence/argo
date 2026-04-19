@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { detectGpuEncoder, getGpuEncoderName, resetGpuEncoderCache } from '../src/gpu-encoder.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { detectGpuEncoder, getGpuEncoderName, resetGpuEncoderCache, isGpuEncodingEnabled } from '../src/gpu-encoder.js';
 
 describe('gpu-encoder', () => {
   beforeEach(() => resetGpuEncoderCache());
@@ -21,5 +21,41 @@ describe('gpu-encoder', () => {
     expect(getGpuEncoderName('vaapi', 'h264')).toBe('h264_vaapi');
     expect(getGpuEncoderName('qsv', 'h264')).toBe('h264_qsv');
     expect(getGpuEncoderName(null, 'h264')).toBe('libx264');
+  });
+});
+
+describe('isGpuEncodingEnabled', () => {
+  let saved: string | undefined;
+
+  beforeEach(() => {
+    saved = process.env.ARGO_USE_GPU;
+  });
+
+  afterEach(() => {
+    if (saved === undefined) {
+      delete process.env.ARGO_USE_GPU;
+    } else {
+      process.env.ARGO_USE_GPU = saved;
+    }
+  });
+
+  it('returns true when env var is unset', () => {
+    delete process.env.ARGO_USE_GPU;
+    expect(isGpuEncodingEnabled()).toBe(true);
+  });
+
+  it('returns true when env var is "1"', () => {
+    process.env.ARGO_USE_GPU = '1';
+    expect(isGpuEncodingEnabled()).toBe(true);
+  });
+
+  it('returns true when env var is "true"', () => {
+    process.env.ARGO_USE_GPU = 'true';
+    expect(isGpuEncodingEnabled()).toBe(true);
+  });
+
+  it('returns false when env var is "0"', () => {
+    process.env.ARGO_USE_GPU = '0';
+    expect(isGpuEncodingEnabled()).toBe(false);
   });
 });

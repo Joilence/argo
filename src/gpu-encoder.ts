@@ -1,4 +1,7 @@
-import { spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileP = promisify(execFile);
 
 export type GpuEncoder = 'nvenc' | 'videotoolbox' | 'vaapi' | 'qsv' | null;
 
@@ -16,28 +19,26 @@ let cached: GpuEncoder | undefined;
  */
 export async function detectGpuEncoder(): Promise<GpuEncoder> {
   if (cached !== undefined) return cached;
-  cached = await probeEncoders();
-  return cached;
+  const result = await probeEncoders();
+  if (result !== null) cached = result;
+  return result;
 }
 
 export function resetGpuEncoderCache(): void {
   cached = undefined;
 }
 
-function probeEncoders(): Promise<GpuEncoder> {
-  return new Promise((resolve) => {
-    const proc = spawn('ffmpeg', ['-encoders'], { stdio: ['ignore', 'pipe', 'ignore'] });
-    let out = '';
-    proc.stdout.on('data', (chunk) => { out += chunk.toString(); });
-    proc.on('close', () => {
-      if (out.includes('h264_nvenc')) return resolve('nvenc');
-      if (out.includes('h264_videotoolbox')) return resolve('videotoolbox');
-      if (out.includes('h264_vaapi')) return resolve('vaapi');
-      if (out.includes('h264_qsv')) return resolve('qsv');
-      resolve(null);
-    });
-    proc.on('error', () => resolve(null));
-  });
+async function probeEncoders(): Promise<GpuEncoder> {
+  try {
+    const { stdout } = await execFileP('ffmpeg', ['-encoders'], { maxBuffer: 2 * 1024 * 1024 });
+    if (stdout.includes('h264_nvenc')) return 'nvenc';
+    if (stdout.includes('h264_videotoolbox')) return 'videotoolbox';
+    if (stdout.includes('h264_vaapi')) return 'vaapi';
+    if (stdout.includes('h264_qsv')) return 'qsv';
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
