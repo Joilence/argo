@@ -37,7 +37,7 @@ function findFileInResults(testResultsDir: string, extension: string): string | 
   return undefined;
 }
 
-function createPlaywrightConfig(options: RecordOptions, outputDir: string): string {
+function createPlaywrightConfig(demoName: string, options: RecordOptions, outputDir: string): string {
   const demosDir = path.resolve(options.demosDir);
   const { width, height } = options.video;
   const browser = options.browser ?? 'chromium';
@@ -69,7 +69,7 @@ export default defineConfig({
     {
       name: 'demos',
       testDir: ${JSON.stringify(demosDir)},
-      testMatch: '**/*.demo.ts',
+      testMatch: ${JSON.stringify(`${demoName}.demo.ts`)},
       use: {
         headless: ${options.headed ? 'false' : 'true'},
         browserName: ${JSON.stringify(browser)},
@@ -97,7 +97,7 @@ export async function record(demoName: string, options: RecordOptions): Promise<
   const testResultsDir = path.resolve('test-results');
   const recordConfigPath = path.join(argoDir, 'playwright.record.config.mjs');
 
-  writeFileSync(recordConfigPath, createPlaywrightConfig(options, testResultsDir), 'utf-8');
+  writeFileSync(recordConfigPath, createPlaywrightConfig(demoName, options, testResultsDir), 'utf-8');
 
   // Clean test-results to avoid picking up stale videos
   rmSync(testResultsDir, { recursive: true, force: true });
