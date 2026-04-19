@@ -394,6 +394,24 @@ Transition types: `fade-through-black`, `dissolve` (quicker dip-to-black, not a 
 
 > **Tip:** Content changes (page navigation, slide switches) should happen **before** `narration.mark()` so the transition fades between the old and new content. If you change content after `mark()`, the transition just pulses the same visual.
 
+### Shader Transitions
+
+Pre-rendered WebGL shader transitions between scenes, cached by content hash.
+
+```js
+export: {
+  transition: {
+    type: 'shader',
+    shader: 'crosswarp',   // crosswarp | swirl | ripple | luma-mask | light-leak
+    durationMs: 800,
+  },
+}
+```
+
+Shaders are adapted from [gl-transitions.com](https://gl-transitions.com) (MIT). First export launches headless Chromium to pre-render shader frames; cached at `.argo/<demo>/shaders/<hash>/` so subsequent exports skip the browser launch.
+
+See `demos/shaders-showcase.demo.ts` for a complete example.
+
 ### Speed Ramp
 
 Compress gaps between scenes (navigation, page loads) to keep demos tight:

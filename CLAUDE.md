@@ -60,6 +60,21 @@ A fixed 90 kHz timescale (`-video_track_timescale 90000`) is set on all outputs 
 Both the primary export path and blur-fill format variants (1:1, 9:16) are encoder-aware.
 
 - **Transitions** (`src/transitions.ts`): Scene transitions at scene boundaries. Uses `filter_complex` with `split` → `trim` → `fade` → `concat` for fade-through-black and dissolve (the only approach that supports multiple boundaries — ffmpeg's `fade` filter only works once per stream). Types: `fade-through-black` (full black dip), `dissolve` (shorter dip-to-black, not a true crossfade), `wipe-left`/`wipe-right` (directional drawbox mask). Fade-out ends one frame before the cut (fps-aware) to prevent keyframe flash. Content changes must happen BEFORE `narration.mark()` so the transition fades between old and new content. Use `durationMs: 2000`+ for visible transitions (500ms is too fast). Configured via `export.transition` in config.
+
+### Shader Transitions (`src/transitions/shader-render.ts`, `src/transitions/shader-splice.ts`)
+
+Pre-rendered WebGL shader transitions. At export time, a pre-pass extracts two boundary frames per scene boundary (last frame of outgoing, first frame of incoming) via ffmpeg, then Playwright Chromium renders the GLSL shader at each of `N = D × fps` progress values, producing a PNG sequence. `buildShaderSpliceFilter` generates a filter_complex three-segment concat (`scene_a + PNG_seq + scene_b`) that replaces the fade window.
+
+Cache key: `sha256(shader, durationMs, fps, width, height, sha256(aPng), sha256(bPng))`. Cached at `.argo/<demo>/shaders/<hash>/`. Second export with unchanged boundaries hits cache with no browser launch.
+
+Shaders live in `src/transitions/shaders/*.glsl`. Build step copies `.glsl` files to `dist/` (tsc does not). v1 ships: `crosswarp`, `swirl`, `ripple`, `luma-mask`, `light-leak` — adapted from gl-transitions.com (MIT).
+
+Per-boundary shader selection is NOT supported in v1 — `export.transition.shader` applies to all boundaries. Future work: a sidecar for per-boundary overrides.
+
+Chromium launch uses `--use-gl=angle --use-angle=swiftshader --enable-webgl` for headless WebGL.
+
+Scene-window clamping: `buildShaderSpliceFilter` clamps `sceneEnd` to `cursorSec` and `transitionEnd` to `totalDurationSec` so boundaries near the video start/end don't produce invalid trim windows.
+
 - **Speed Ramp** (`src/speed-ramp.ts`): Timeline-first speed ramp — planned before export so chapters, subtitles, and extra formats reflect ramped timing. Configured via `export.speedRamp: { gapSpeed, minGapMs }`. Uses `setpts` (video) and `atempo` (audio) filters.
 - **Progress** (`src/progress.ts`): Wraps ffmpeg execution with `-progress pipe:1` to parse `out_time_us` and render a terminal progress bar showing encoding percentage. Used by the pipeline when `totalDurationMs` is known.
 - **Subtitles** (`src/subtitles.ts`): Generates `.srt` and `.vtt` files from alignment placements + scenes manifest text. Best-effort — won't fail the pipeline.
