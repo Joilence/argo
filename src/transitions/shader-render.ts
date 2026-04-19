@@ -1,7 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join as pathJoin } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { chromium, type Browser } from '@playwright/test';
+import { buildShaderPageHtml } from './shader-page.html.js';
+import { SHADERS, type ShaderName } from './shaders/index.js';
 
 const execFileP = promisify(execFile);
 
@@ -52,4 +56,76 @@ export async function extractBoundaryFrame(
       `Failed to extract boundary frame at ${timestampSec}s from ${videoPath}: ${(err as Error).message}`,
     );
   }
+}
+
+export interface RenderShaderFramesOptions {
+  shader: ShaderName;
+  aPng: string;
+  bPng: string;
+  width: number;
+  height: number;
+  fps: number;
+  durationMs: number;
+  outputDir: string;
+  /** Reusable browser — pass one across multiple boundaries for performance. */
+  browser?: Browser;
+}
+
+/**
+ * Render a GLSL shader transition as a PNG sequence.
+ * Produces `outputDir/frame_0000.png` ... `frame_{N-1}.png` where
+ * N = Math.round(durationMs * fps / 1000).
+ *
+ * Launches Playwright Chromium if a browser is not passed in. Callers with
+ * multiple boundaries should share a single browser across calls.
+ */
+export async function renderShaderFrames(opts: RenderShaderFramesOptions): Promise<number> {
+  mkdirSync(opts.outputDir, { recursive: true });
+  const N = Math.max(1, Math.round((opts.durationMs * opts.fps) / 1000));
+
+  const ownsBrowser = !opts.browser;
+  const browser = opts.browser ?? await chromium.launch({
+    args: [
+      '--use-gl=angle',
+      '--use-angle=swiftshader',
+      '--enable-webgl',
+      '--ignore-gpu-blacklist',
+    ],
+  });
+  try {
+    const page = await browser.newPage({ viewport: { width: opts.width, height: opts.height } });
+    try {
+      const html = buildShaderPageHtml(opts.width, opts.height, SHADERS[opts.shader]);
+      await page.setContent(html, { waitUntil: 'load' });
+
+      const glError = await page.evaluate(() => (window as any).__glError as string | undefined);
+      if (glError) throw new Error(`WebGL init error (${opts.shader}): ${glError}`);
+
+      const aBuf = readFileSync(opts.aPng);
+      const bBuf = readFileSync(opts.bPng);
+      const aDataUri = 'data:image/png;base64,' + aBuf.toString('base64');
+      const bDataUri = 'data:image/png;base64,' + bBuf.toString('base64');
+      await page.evaluate(
+        ([a, b]) => (window as any).__loadFrames(a, b),
+        [aDataUri, bDataUri] as const,
+      );
+
+      for (let i = 0; i < N; i++) {
+        const progress = N === 1 ? 0 : i / (N - 1);
+        const dataUri = await page.evaluate(
+          (p) => (window as any).__renderAt(p) as Promise<string>,
+          progress,
+        );
+        const base64 = dataUri.split(',', 2)[1];
+        const outPath = pathJoin(opts.outputDir, `frame_${String(i).padStart(4, '0')}.png`);
+        writeFileSync(outPath, Buffer.from(base64, 'base64'));
+      }
+    } finally {
+      await page.close();
+    }
+  } finally {
+    if (ownsBrowser) await browser.close();
+  }
+
+  return N;
 }

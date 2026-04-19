@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileP = promisify(execFile);
 import { SHADERS, isValidShaderName, SHADER_NAMES } from '../../src/transitions/shaders/index.js';
 import type { TransitionConfig } from '../../src/config.js';
 
@@ -101,4 +105,37 @@ describe('extractBoundaryFrame', () => {
     ).rejects.toThrow(/Failed to extract/);
     rmSync(tmp, { recursive: true, force: true });
   });
+});
+
+describe('renderShaderFrames', () => {
+  const hasSample = existsSync(join(process.cwd(), 'tests/fixtures/sample-2s.mp4'));
+
+  it.runIf(hasSample)('renders N = duration_ms * fps / 1000 frames', async () => {
+    const { renderShaderFrames } = await import('../../src/transitions/shader-render.js');
+    const tmp = mkdtempSync(join(tmpdir(), 'argo-render-'));
+    const aPng = join(tmp, 'a.png');
+    const bPng = join(tmp, 'b.png');
+    await execFileP('ffmpeg', ['-f', 'lavfi', '-i', 'color=red:s=320x180', '-frames:v', '1', '-y', aPng]);
+    await execFileP('ffmpeg', ['-f', 'lavfi', '-i', 'color=blue:s=320x180', '-frames:v', '1', '-y', bPng]);
+
+    const outDir = join(tmp, 'frames');
+    await renderShaderFrames({
+      shader: 'crosswarp',
+      aPng, bPng,
+      width: 320, height: 180,
+      fps: 30,
+      durationMs: 500,  // 15 frames
+      outputDir: outDir,
+    });
+
+    const files = readdirSync(outDir).filter(f => f.endsWith('.png')).sort();
+    expect(files).toHaveLength(15);
+    expect(files[0]).toBe('frame_0000.png');
+    expect(files[14]).toBe('frame_0014.png');
+    // Each frame must be a real PNG > 100 bytes
+    for (const f of files) {
+      expect(statSync(join(outDir, f)).size).toBeGreaterThan(100);
+    }
+    rmSync(tmp, { recursive: true, force: true });
+  }, 60000);
 });
