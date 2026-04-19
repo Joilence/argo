@@ -71,4 +71,21 @@ describe('x-post block', () => {
     }, 'dark');
     expect(result.contentHtml).toContain('X');
   });
+
+  it('escapes avatar URL to prevent attribute injection', () => {
+    const result = renderTemplate({
+      type: 'block',
+      block: 'x-post',
+      props: {
+        handle: '@x',
+        name: 'X',
+        body: 'hi',
+        avatar: 'javascript:alert(1)" onerror="alert(2)',
+      },
+    }, 'dark');
+    // The raw unescaped attacker payload must NOT appear
+    expect(result.contentHtml).not.toContain('" onerror="');
+    // The escaped version IS allowed (browser treats it as literal text in src attribute)
+    expect(result.contentHtml).toContain('&quot; onerror=&quot;');
+  });
 });

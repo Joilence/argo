@@ -1,6 +1,7 @@
 import type { BlockDefinition } from '../types.js';
 import type { TemplateResult } from '../../overlays/templates.js';
 import type { BackgroundTheme } from '../../overlays/zones.js';
+import { escapeHtml } from '../../html-escape.js';
 
 export interface XPostProps {
   handle: string;
@@ -10,14 +11,6 @@ export interface XPostProps {
   avatar?: string;
   verified?: boolean;
   [key: string]: unknown;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 function render(props: XPostProps, theme: BackgroundTheme): TemplateResult {

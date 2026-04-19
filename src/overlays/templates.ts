@@ -1,18 +1,11 @@
 import type { OverlayCue } from './types.js';
 import type { BackgroundTheme } from './zones.js';
 import { getBlock, isValidBlockName } from '../blocks/index.js';
+import { escapeHtml } from '../html-escape.js';
 
 export interface TemplateResult {
   contentHtml: string;
   styles: Record<string, string>;
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 function lowerThird(text: string, theme: BackgroundTheme): TemplateResult {
