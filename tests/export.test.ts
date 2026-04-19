@@ -644,4 +644,39 @@ describe('exportVideo', () => {
     expect(a).toContain('-video_track_timescale');
     expect(a[a.indexOf('-video_track_timescale') + 1]).toBe('90000');
   });
+
+  it('embeds BT.709 color metadata in blur-fill format variant args', async () => {
+    setupHappy();
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', formats: ['1:1'] });
+
+    // The second spawnSync call is the blur-fill variant export
+    expect(mockedSpawnSync.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const [, variantArgs] = mockedSpawnSync.mock.calls[1];
+    const a = variantArgs as string[];
+
+    // x264-params should include BT.709 + AQ tuning
+    const x264Idx = a.indexOf('-x264-params');
+    expect(x264Idx).toBeGreaterThan(-1);
+    const x264Params = a[x264Idx + 1];
+    expect(x264Params).toContain('colorprim=bt709');
+    expect(x264Params).toContain('transfer=bt709');
+    expect(x264Params).toContain('colormatrix=bt709');
+    expect(x264Params).toContain('aq-mode=3');
+    expect(x264Params).toContain('aq-strength=0.8');
+    expect(x264Params).toContain('deblock=1,1');
+
+    // Container-level color tags
+    expect(a).toContain('-colorspace:v');
+    expect(a[a.indexOf('-colorspace:v') + 1]).toBe('bt709');
+    expect(a).toContain('-color_primaries:v');
+    expect(a[a.indexOf('-color_primaries:v') + 1]).toBe('bt709');
+    expect(a).toContain('-color_trc:v');
+    expect(a[a.indexOf('-color_trc:v') + 1]).toBe('bt709');
+    expect(a).toContain('-color_range');
+    expect(a[a.indexOf('-color_range') + 1]).toBe('tv');
+
+    // Fixed timescale
+    expect(a).toContain('-video_track_timescale');
+    expect(a[a.indexOf('-video_track_timescale') + 1]).toBe('90000');
+  });
 });

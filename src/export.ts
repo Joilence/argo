@@ -616,6 +616,13 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       '-pix_fmt', 'yuv420p',
       '-preset', preset,
       '-crf', String(crf),
+      '-x264-params',
+      'aq-mode=3:aq-strength=0.8:deblock=1,1:colorprim=bt709:transfer=bt709:colormatrix=bt709',
+      '-colorspace:v', 'bt709',
+      '-color_primaries:v', 'bt709',
+      '-color_trc:v', 'bt709',
+      '-color_range', 'tv',
+      '-video_track_timescale', '90000',
       '-c:a', 'copy',
       '-y', formatPath,
     ];
