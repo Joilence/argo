@@ -333,7 +333,20 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       audioSource = transitionComplex.audioOutput.replace(/[\[\]]/g, '');
     }
   } else if (vFilters.length > 0) {
-    if (speedRampFilter || filterParts.length > 0) {
+    // Anticipate whether downstream stages will add inputs or filter_complex
+    // nodes. Any stage that pushes a new `-i` requires vFilters to flow through
+    // filter_complex — otherwise ffmpeg rejects with "Option vf cannot be
+    // applied to input url" because the new `-i` lands after the `-vf`. Covers
+    // frame (adds PNG input), watermark (adds PNG input), overlayPngs (adds
+    // PNG inputs), cameraMoves (filter_complex only), and sharpen (which
+    // routes via filter_complex once other filters are present).
+    const downstreamWillUseFilterComplex =
+      (options.cameraMoves && options.cameraMoves.length > 0) ||
+      (options.overlayPngs && options.overlayPngs.length > 0) ||
+      Boolean(options.frame) ||
+      Boolean(options.watermark && options.watermark.src && existsSync(options.watermark.src)) ||
+      Boolean(options.sharpen);
+    if (speedRampFilter || filterParts.length > 0 || downstreamWillUseFilterComplex) {
       filterParts.push(`[${videoSource}]${vFilters.join(',')}[outvfinal]`);
       videoSource = 'outvfinal';
     } else {

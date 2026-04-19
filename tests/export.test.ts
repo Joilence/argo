@@ -909,4 +909,30 @@ describe('exportVideo', () => {
     expect(a).toContain('-colorspace:v');
     expect(a).toContain('-video_track_timescale');
   });
+
+  it('routes vFilters through filter_complex when frame effect adds a PNG input', async () => {
+    // Regression: without this, `-vf` was pushed before the frame PNG `-i`,
+    // and ffmpeg rejected with "Option vf cannot be applied to input url".
+    setupHappy();
+    await exportVideo({
+      demoName: 'demo', argoDir: '.argo', outputDir: 'out',
+      frame: {
+        padding: 48,
+        borderRadius: 16,
+        shadow: 0.3,
+        background: { type: 'gradient', value: 'linear-gradient(135deg, #1a1a2e, #16213e)' },
+      },
+      framePngPath: '.argo/demo/frame.png',
+    });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+    // With frame active, there should be NO bare -vf arg — all filters must be
+    // inside filter_complex so subsequent -i (frame PNG) is accepted.
+    expect(a).not.toContain('-vf');
+    expect(a).toContain('-filter_complex');
+    // And the frame PNG is registered as a normal -i input
+    const inputCount = a.filter(x => x === '-i').length;
+    expect(inputCount).toBeGreaterThanOrEqual(3); // video + audio + frame.png
+  });
 });
