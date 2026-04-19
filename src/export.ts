@@ -604,11 +604,12 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
 
     // Blur-fill: blurred version of the source fills the background,
     // original scaled-to-fit is overlaid on top. Much better than hard crop.
+    // Range conversion applied to the composited output so both bg and fg inherit it.
     const blurFilter = [
       `split[bg][fg]`,
       `[bg]scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH},boxblur=20:5[blurred]`,
       `[fg]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease[scaled]`,
-      `[blurred][scaled]overlay=(W-w)/2:(H-h)/2`,
+      `[blurred][scaled]overlay=(W-w)/2:(H-h)/2,scale=in_range=pc:out_range=tv`,
     ].join(';');
 
     console.log(`  Exporting ${format} (blur-fill) → ${formatPath}`);

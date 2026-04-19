@@ -703,4 +703,19 @@ describe('exportVideo', () => {
     expect(a).toContain('-video_track_timescale');
     expect(a[a.indexOf('-video_track_timescale') + 1]).toBe('90000');
   });
+
+  it('includes scale=in_range=pc:out_range=tv in blur-fill format variant filter_complex', async () => {
+    setupHappy();
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', formats: ['1:1'] });
+
+    // The second spawnSync call is the blur-fill variant export
+    expect(mockedSpawnSync.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const [, variantArgs] = mockedSpawnSync.mock.calls[1];
+    const a = variantArgs as string[];
+
+    const fcIdx = a.indexOf('-filter_complex');
+    expect(fcIdx).toBeGreaterThan(-1);
+    const fcValue = a[fcIdx + 1];
+    expect(fcValue).toContain('scale=in_range=pc:out_range=tv');
+  });
 });
