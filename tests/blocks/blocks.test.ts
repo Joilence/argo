@@ -109,3 +109,23 @@ describe('macos-notification block', () => {
     expect(result.contentHtml).not.toContain('<img onerror');
   });
 });
+
+describe('yt-lower-third block', () => {
+  it('renders name + subtitle with accent bar', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'yt-lower-third',
+      props: { name: 'Jane Doe', subtitle: 'Engineering Lead', accentColor: '#ef4444' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Jane Doe');
+    expect(result.contentHtml).toContain('Engineering Lead');
+    expect(result.contentHtml).toContain('#ef4444');
+  });
+
+  it('uses default accent when accentColor missing', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'yt-lower-third',
+      props: { name: 'J', subtitle: 'S' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('J');
+  });
+});

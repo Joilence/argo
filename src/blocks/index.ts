@@ -1,6 +1,7 @@
 import type { BlockDefinition } from './types.js';
 import { xPostBlock } from './x-post/template.js';
 import { macosNotificationBlock } from './macos-notification/template.js';
+import { ytLowerThirdBlock } from './yt-lower-third/template.js';
 
 /**
  * Compile-time registry. Each block is a self-contained folder under
@@ -13,6 +14,7 @@ import { macosNotificationBlock } from './macos-notification/template.js';
 export const BLOCK_REGISTRY = {
   'x-post': xPostBlock,
   'macos-notification': macosNotificationBlock,
+  'yt-lower-third': ytLowerThirdBlock,
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as const satisfies Record<string, BlockDefinition<any>>;
 
