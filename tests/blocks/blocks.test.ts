@@ -157,3 +157,24 @@ describe('data-chart block', () => {
     expect(result.contentHtml).toContain('Empty');
   });
 });
+
+describe('spotify-card block', () => {
+  it('renders track, artist, and progress bar', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'spotify-card',
+      props: { track: 'Bohemian Rhapsody', artist: 'Queen', elapsed: 120, total: 354 },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Bohemian Rhapsody');
+    expect(result.contentHtml).toContain('Queen');
+    expect(result.contentHtml).toContain('2:00');
+    expect(result.contentHtml).toContain('5:54');
+  });
+
+  it('clamps progress to [0,1]', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'spotify-card',
+      props: { track: 'T', artist: 'A', elapsed: 999, total: 100 },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('width:999%');
+  });
+});
