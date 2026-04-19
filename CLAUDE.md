@@ -76,6 +76,14 @@ Overlay cues use discriminated unions — each template type has its own TypeScr
 
 Overlay injection includes a no-op `page.evaluate(() => {})` fence before injecting to flush pending browser renders. Apps with aggressive DOM updates (like sift's table engine) can remove freshly injected elements if they have a render cycle queued from the same tick as `narration.mark()`. The fence adds one CDP round-trip (~1-5ms) but prevents flashing. Fire-and-forget `showOverlay` calls use instance IDs — `removeZone` only removes if the element's instance matches, preventing a previous scene's cleanup from killing a newer overlay in the same zone.
 
+### Blocks (`src/blocks/`)
+
+Curated overlay catalog. Each block is self-contained under `src/blocks/<name>/` with a `block.json` metadata file and a `template.ts` exporting a `BlockDefinition`. `src/blocks/index.ts` is a const-typed barrel — `BlockName` is a literal union derived from `keyof typeof BLOCK_REGISTRY`.
+
+Blocks plug into `renderTemplate()` via the `type: 'block'` cue variant. Props merge over block-level defaults at render time (`{ ...block.defaultProps, ...cue.props }`). HTML escaping uses the shared `src/html-escape.ts` utility — all blocks import from there.
+
+v1 blocks: `x-post`, `macos-notification`, `yt-lower-third`, `data-chart`, `spotify-card`. Folder format is designed for a future `argo add <block>` command (not shipped in v1).
+
 ### Effects (`src/effects.ts`)
 
 `showConfetti(page, opts?)` — non-blocking by default (fire-and-forget safe). Injects a canvas-based confetti animation via `page.evaluate()`. Two spread modes: `burst` (Raycast-style, center-top fan) and `rain` (full-width fall). `emoji: '🎃'` or `emoji: ['🎄', '⭐']` renders emoji characters instead of colored rectangles. Set `wait: true` to block until animation completes. Errors from page/context disposal are swallowed; all other errors surface as warnings.

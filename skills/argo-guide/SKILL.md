@@ -200,6 +200,18 @@ Five types, each with a `type` discriminant. All support `placement`, `motion`, 
 
 **Auto background:** Set `autoBackground: true` to auto-detect page contrast. Skips fixed/sticky elements (navbars).
 
+### Overlay blocks
+
+Argo ships 5 ready-to-use blocks for narrative inserts:
+
+- `x-post` — fake social post (social proof)
+- `macos-notification` — system-style banner (in-product events)
+- `yt-lower-third` — speaker intro styling
+- `data-chart` — compact bar/line chart (metrics)
+- `spotify-card` — now-playing (decorative)
+
+Reference via `overlay: { type: 'block', block: '<name>', props: { ... } }` in `.scenes.json`. See `demos/blocks-showcase.demo.ts` for a full example.
+
 ### How Overlays Get Triggered
 
 Overlays need **two things** to appear in the video:

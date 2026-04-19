@@ -229,6 +229,39 @@ Options:
   --port <number>                  Preview server port (default: auto)
 ```
 
+### Overlay Blocks
+
+Argo ships 5 curated overlay blocks for demo narratives. Reference them from `.scenes.json`:
+
+```json
+{
+  "scene": "social-proof",
+  "overlay": {
+    "type": "block",
+    "block": "x-post",
+    "props": {
+      "handle": "@jane",
+      "name": "Jane Doe",
+      "body": "this is exactly what I needed",
+      "timestamp": "2m"
+    },
+    "placement": "top-right"
+  }
+}
+```
+
+Available blocks:
+
+| Block | Purpose |
+|-------|---------|
+| `x-post` | Social post card for social proof |
+| `macos-notification` | macOS-style notification banner |
+| `yt-lower-third` | YouTube-style lower third for speaker intros |
+| `data-chart` | Compact bar/line chart for metrics |
+| `spotify-card` | Now-playing card for decorative inserts |
+
+Blocks live under `src/blocks/<name>/` — see [demos/blocks-showcase](demos/blocks-showcase.demo.ts) for a complete example.
+
 ## API
 
 Argo exports Playwright fixtures and helpers for use in demo scripts:
