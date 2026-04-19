@@ -11,6 +11,7 @@ import { buildFreezeFilter, type ResolvedFreeze } from './freeze.js';
 import { getVideoFrameRate } from './media.js';
 import { buildOverlayPngFilters, isImportedVideo, type RenderedOverlayPng } from './overlays/render-to-png.js';
 import { buildFrameFilter } from './frame.js';
+import { detectGpuEncoder, getGpuEncoderName, isGpuEncodingEnabled, type GpuEncoder } from './gpu-encoder.js';
 
 export interface ExportOptions {
   demoName: string;
@@ -200,7 +201,16 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   const headTrimMs = options.headTrimMs ?? 0;
   const headTrimSec = headTrimMs > 0 ? (headTrimMs / 1000).toFixed(3) : '';
 
+  // GPU encoder detection — done before args construction so VAAPI can insert device flag
+  const gpuEncoder: GpuEncoder = isGpuEncodingEnabled() ? await detectGpuEncoder() : null;
+  const codecName = getGpuEncoderName(gpuEncoder, 'h264');
+
   const args: string[] = [];
+
+  // VAAPI requires a device flag BEFORE the first -i input
+  if (gpuEncoder === 'vaapi') {
+    args.push('-vaapi_device', '/dev/dri/renderD128');
+  }
 
   // Trim setup/teardown by seeking both inputs to the first scene mark
   if (headTrimSec) args.push('-ss', headTrimSec);
@@ -277,6 +287,11 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   // Chrome renders full-range RGB (0-255); H.264 expects TV range (16-235).
   // Convert so blacks don't clip and contrast matches on compliant players.
   vFilters.push('scale=in_range=pc:out_range=tv');
+
+  // VAAPI requires pixel format conversion and hw upload at end of sw filter chain
+  if (gpuEncoder === 'vaapi') {
+    vFilters.push('format=nv12', 'hwupload');
+  }
 
   // Scene transitions
   let transitionComplex: { filterComplex: string; videoOutput: string; audioOutput: string | null } | null = null;
@@ -485,20 +500,44 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
     args.push('-filter_complex', filterParts.join(';\n'));
   }
 
-  args.push('-c:v', 'libx264');
-  args.push('-pix_fmt', 'yuv420p');
-  args.push('-preset', preset);
-  args.push('-crf', String(crf));
+  args.push('-c:v', codecName);
+  args.push('-pix_fmt', gpuEncoder === 'vaapi' ? 'vaapi_vld' : 'yuv420p');
+
+  // Per-encoder quality/preset flags
+  switch (gpuEncoder) {
+    case 'nvenc':
+      args.push('-preset', preset, '-cq', String(crf));
+      break;
+    case 'videotoolbox': {
+      const vtQ = Math.max(0, Math.min(100, 100 - crf * 2));
+      args.push('-q:v', String(vtQ), '-allow_sw', '1');
+      break;
+    }
+    case 'vaapi':
+      args.push('-qp', String(crf));
+      break;
+    case 'qsv':
+      args.push('-preset', preset, '-global_quality', String(crf));
+      break;
+    default:
+      // libx264 fallback
+      args.push('-preset', preset, '-crf', String(crf));
+      break;
+  }
 
   // aq-mode=3 redistributes bits to dark flat regions (kills gradient banding),
   // deblock softens macroblock edges. BT.709 params embed color-space VUI in H.264.
-  args.push(
-    '-x264-params',
-    'aq-mode=3:aq-strength=0.8:deblock=1,1:colorprim=bt709:transfer=bt709:colormatrix=bt709',
-  );
+  // These flags are libx264-only — GPU encoders use their own rate control internals.
+  if (!gpuEncoder) {
+    args.push(
+      '-x264-params',
+      'aq-mode=3:aq-strength=0.8:deblock=1,1:colorprim=bt709:transfer=bt709:colormatrix=bt709',
+    );
+  }
 
   // Container-level color space tags — picked up by Safari, modern TVs, and
   // standards-compliant players. Chrome screenshots are sRGB which maps to BT.709.
+  // These apply to all encoders (container metadata, not codec-internal VUI).
   args.push(
     '-colorspace:v', 'bt709',
     '-color_primaries:v', 'bt709',
@@ -613,15 +652,53 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
     ].join(';');
 
     console.log(`  Exporting ${format} (blur-fill) → ${formatPath}`);
-    const formatArgs = [
+    const formatArgs: string[] = [];
+
+    // VAAPI needs device flag before -i
+    if (gpuEncoder === 'vaapi') {
+      formatArgs.push('-vaapi_device', '/dev/dri/renderD128');
+    }
+
+    // VAAPI blur-fill: append hw upload filters after range conversion in the graph
+    const blurFilterFinal = gpuEncoder === 'vaapi'
+      ? blurFilter + ',format=nv12,hwupload'
+      : blurFilter;
+
+    formatArgs.push(
       '-i', outputPath,
-      '-filter_complex', blurFilter,
-      '-c:v', 'libx264',
-      '-pix_fmt', 'yuv420p',
-      '-preset', preset,
-      '-crf', String(crf),
-      '-x264-params',
-      'aq-mode=3:aq-strength=0.8:deblock=1,1:colorprim=bt709:transfer=bt709:colormatrix=bt709',
+      '-filter_complex', blurFilterFinal,
+      '-c:v', codecName,
+      '-pix_fmt', gpuEncoder === 'vaapi' ? 'vaapi_vld' : 'yuv420p',
+    );
+
+    // Per-encoder quality flags
+    switch (gpuEncoder) {
+      case 'nvenc':
+        formatArgs.push('-preset', preset, '-cq', String(crf));
+        break;
+      case 'videotoolbox': {
+        const vtQ = Math.max(0, Math.min(100, 100 - crf * 2));
+        formatArgs.push('-q:v', String(vtQ), '-allow_sw', '1');
+        break;
+      }
+      case 'vaapi':
+        formatArgs.push('-qp', String(crf));
+        break;
+      case 'qsv':
+        formatArgs.push('-preset', preset, '-global_quality', String(crf));
+        break;
+      default:
+        formatArgs.push('-preset', preset, '-crf', String(crf));
+        if (!gpuEncoder) {
+          formatArgs.push(
+            '-x264-params',
+            'aq-mode=3:aq-strength=0.8:deblock=1,1:colorprim=bt709:transfer=bt709:colormatrix=bt709',
+          );
+        }
+        break;
+    }
+
+    formatArgs.push(
       '-colorspace:v', 'bt709',
       '-color_primaries:v', 'bt709',
       '-color_trc:v', 'bt709',
@@ -629,7 +706,7 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       '-video_track_timescale', '90000',
       '-c:a', 'copy',
       '-y', formatPath,
-    ];
+    );
 
     const fmtResult = spawnSync('ffmpeg', formatArgs, { stdio: 'inherit' });
     if (fmtResult.status !== 0) {

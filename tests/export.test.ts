@@ -14,18 +14,32 @@ vi.mock('../src/progress.js', () => ({
   runFfmpegWithProgress: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../src/gpu-encoder.js', () => ({
+  detectGpuEncoder: vi.fn().mockResolvedValue(null),
+  getGpuEncoderName: vi.fn((enc: string | null, _codec: string) => enc ? `h264_${enc}` : 'libx264'),
+  isGpuEncodingEnabled: vi.fn().mockReturnValue(true),
+}));
+
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { runFfmpegWithProgress } from '../src/progress.js';
 import { checkFfmpeg, exportVideo } from '../src/export.js';
+import { detectGpuEncoder, getGpuEncoderName, isGpuEncodingEnabled } from '../src/gpu-encoder.js';
 
 const mockedExecFileSync = vi.mocked(execFileSync);
 const mockedSpawnSync = vi.mocked(spawnSync);
 const mockedExistsSync = vi.mocked(existsSync);
 const mockedMkdirSync = vi.mocked(mkdirSync);
+const mockedDetectGpuEncoder = vi.mocked(detectGpuEncoder);
+const mockedGetGpuEncoderName = vi.mocked(getGpuEncoderName);
+const mockedIsGpuEncodingEnabled = vi.mocked(isGpuEncodingEnabled);
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Default: no GPU encoder, GPU encoding enabled
+  mockedDetectGpuEncoder.mockResolvedValue(null);
+  mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc ? `h264_${enc}` : 'libx264');
+  mockedIsGpuEncodingEnabled.mockReturnValue(true);
 });
 
 // ---------- checkFfmpeg ----------
@@ -717,5 +731,129 @@ describe('exportVideo', () => {
     expect(fcIdx).toBeGreaterThan(-1);
     const fcValue = a[fcIdx + 1];
     expect(fcValue).toContain('scale=in_range=pc:out_range=tv');
+  });
+
+  // ---------- GPU encoder integration ----------
+
+  it('uses GPU encoder codec name when GPU is available', async () => {
+    setupHappy();
+    mockedDetectGpuEncoder.mockResolvedValue('videotoolbox');
+    mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc === 'videotoolbox' ? 'h264_videotoolbox' : 'libx264');
+
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out' });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+    expect(a).toContain('h264_videotoolbox');
+    expect(a).not.toContain('libx264');
+    // GPU encoders do not use -x264-params
+    expect(a).not.toContain('-x264-params');
+    // Container color tags and timescale still apply
+    expect(a).toContain('-colorspace:v');
+    expect(a).toContain('-video_track_timescale');
+  });
+
+  it('falls back to libx264 when ARGO_USE_GPU=0', async () => {
+    setupHappy();
+    mockedIsGpuEncodingEnabled.mockReturnValue(false);
+    // Even if detectGpuEncoder would return something, isGpuEncodingEnabled=false prevents it
+    mockedDetectGpuEncoder.mockResolvedValue('nvenc');
+
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out' });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+    expect(a).toContain('libx264');
+    expect(a).not.toContain('h264_nvenc');
+    // libx264 fallback includes -x264-params
+    expect(a).toContain('-x264-params');
+  });
+
+  it('uses -cq for nvenc encoder quality flag', async () => {
+    setupHappy();
+    mockedDetectGpuEncoder.mockResolvedValue('nvenc');
+    mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc === 'nvenc' ? 'h264_nvenc' : 'libx264');
+
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', crf: 18 });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+    expect(a).toContain('-cq');
+    expect(a[a.indexOf('-cq') + 1]).toBe('18');
+    expect(a).not.toContain('-crf');
+  });
+
+  it('uses -q:v and -allow_sw for videotoolbox encoder', async () => {
+    setupHappy();
+    mockedDetectGpuEncoder.mockResolvedValue('videotoolbox');
+    mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc === 'videotoolbox' ? 'h264_videotoolbox' : 'libx264');
+
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', crf: 16 });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+    expect(a).toContain('-q:v');
+    // crf=16 → q:v = 100 - 16*2 = 68
+    expect(a[a.indexOf('-q:v') + 1]).toBe('68');
+    expect(a).toContain('-allow_sw');
+    expect(a).toContain('1');
+    expect(a).not.toContain('-crf');
+  });
+
+  it('uses -qp for vaapi encoder and adds hwupload to vFilters', async () => {
+    setupHappy();
+    mockedDetectGpuEncoder.mockResolvedValue('vaapi');
+    mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc === 'vaapi' ? 'h264_vaapi' : 'libx264');
+
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', crf: 20 });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+    expect(a).toContain('-qp');
+    expect(a[a.indexOf('-qp') + 1]).toBe('20');
+    expect(a).toContain('vaapi_vld');
+    // vaapi_device should appear before the first -i
+    const deviceIdx = a.indexOf('-vaapi_device');
+    const firstInputIdx = a.indexOf('-i');
+    expect(deviceIdx).toBeGreaterThan(-1);
+    expect(deviceIdx).toBeLessThan(firstInputIdx);
+    // hwupload should appear in the vf/filter chain
+    const vfIdx = a.indexOf('-vf');
+    if (vfIdx > -1) {
+      expect(a[vfIdx + 1]).toContain('hwupload');
+    }
+  });
+
+  it('uses -global_quality for qsv encoder', async () => {
+    setupHappy();
+    mockedDetectGpuEncoder.mockResolvedValue('qsv');
+    mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc === 'qsv' ? 'h264_qsv' : 'libx264');
+
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', crf: 22 });
+
+    const [, args] = mockedSpawnSync.mock.calls[0];
+    const a = args as string[];
+    expect(a).toContain('-global_quality');
+    expect(a[a.indexOf('-global_quality') + 1]).toBe('22');
+    expect(a).not.toContain('-crf');
+  });
+
+  it('uses GPU encoder for blur-fill format variants too', async () => {
+    setupHappy();
+    mockedDetectGpuEncoder.mockResolvedValue('videotoolbox');
+    mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc === 'videotoolbox' ? 'h264_videotoolbox' : 'libx264');
+
+    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', formats: ['1:1'] });
+
+    // The second spawnSync call is the blur-fill variant export
+    expect(mockedSpawnSync.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const [, variantArgs] = mockedSpawnSync.mock.calls[1];
+    const a = variantArgs as string[];
+    expect(a).toContain('h264_videotoolbox');
+    expect(a).not.toContain('libx264');
+    expect(a).not.toContain('-x264-params');
+    // Container color tags still present
+    expect(a).toContain('-colorspace:v');
+    expect(a).toContain('-video_track_timescale');
   });
 });
