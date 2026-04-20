@@ -27,6 +27,7 @@ import { resolveFreezes, adjustPlacementsForFreezes, totalFreezeDurationMs, type
 import { buildOverlayPngsForImport, isImportedVideo, type RenderedOverlayPng } from './overlays/render-to-png.js';
 import { renderShaderTransitions, type ShaderTransitionRenderResult } from './transitions/shader-render.js';
 import { detectVideoTheme, getVideoDurationMs, probeEdgeColors } from './media.js';
+import { computeWaveform } from './preview-waveform.js';
 import type { BackgroundTheme } from './overlays/zones.js';
 
 export interface PreviewExportConfig {
@@ -638,6 +639,25 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
         const clips = listClips(argoDir, demoName);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(clips));
+        return;
+      }
+
+      // Downsampled waveform peaks for the timeline strip
+      if (url?.startsWith('/api/waveform') && (req.method === 'GET' || req.method === undefined)) {
+        const parsed = new URL(req.url ?? '', `http://${req.headers.host}`);
+        const requestedBuckets = Number(parsed.searchParams.get('samples')) || 1000;
+        const wavPath = join(demoDir, 'narration-aligned.wav');
+        const data = computeWaveform(wavPath, requestedBuckets);
+        if (!data) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'narration-aligned.wav not found or unreadable' }));
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        });
+        res.end(JSON.stringify(data));
         return;
       }
 
@@ -1645,6 +1665,46 @@ const PREVIEW_HTML = `<!DOCTYPE html>
     border-top: 1px solid var(--border);
     padding: 12px 20px;
   }
+  .waveform-strip {
+    position: relative;
+    height: 56px;
+    background: var(--surface2);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  #waveform-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    pointer-events: none;
+  }
+  .waveform-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--text);
+    z-index: 5;
+    pointer-events: none;
+    transition: left 0.05s linear;
+    opacity: 0.85;
+  }
+  .waveform-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    pointer-events: none;
+  }
+  .waveform-strip.has-data .waveform-empty { display: none; }
   .timeline-bar {
     position: relative;
     height: 32px;
@@ -2403,6 +2463,11 @@ const PREVIEW_HTML = `<!DOCTYPE html>
   </div>
 
   <div class="timeline">
+    <div class="waveform-strip" id="waveform-strip">
+      <canvas id="waveform-canvas"></canvas>
+      <div class="waveform-playhead" id="waveform-playhead"></div>
+      <div class="waveform-empty" id="waveform-empty">No narration audio yet — record or align to see the waveform.</div>
+    </div>
     <div class="timeline-bar" id="timeline-bar">
       <div class="timeline-progress" id="timeline-progress"></div>
       <div class="timeline-playhead" id="timeline-playhead"></div>
@@ -2702,6 +2767,7 @@ video.addEventListener('loadedmetadata', () => {
   const totalMs = getPreviewDurationMs();
   document.getElementById('time-total').textContent = formatTime(totalMs);
   renderTimelineMarkers();
+  loadAndRenderWaveform();
 
   // Create overlay DOM elements
   renderOverlayElements();
@@ -2710,6 +2776,86 @@ video.addEventListener('loadedmetadata', () => {
 if (getPreviewDurationMs() > 0) {
   document.getElementById('time-total').textContent = formatTime(getPreviewDurationMs());
   renderTimelineMarkers();
+}
+
+// ─── Waveform strip ────────────────────────────────────────────────────────
+let waveformSamples = null;
+
+async function loadAndRenderWaveform() {
+  const strip = document.getElementById('waveform-strip');
+  const canvas = document.getElementById('waveform-canvas');
+  const empty = document.getElementById('waveform-empty');
+  if (!strip || !canvas) return;
+  try {
+    const buckets = Math.max(200, Math.min(2000, Math.round(strip.clientWidth * 1.2)));
+    const resp = await fetch('/api/waveform?samples=' + buckets);
+    if (!resp.ok) {
+      strip.classList.remove('has-data');
+      if (empty) empty.style.display = '';
+      return;
+    }
+    const data = await resp.json();
+    waveformSamples = (data && Array.isArray(data.samples)) ? data.samples : [];
+    if (waveformSamples.length === 0) {
+      strip.classList.remove('has-data');
+      return;
+    }
+    strip.classList.add('has-data');
+    paintWaveform();
+  } catch (err) {
+    console.warn('[argo] waveform fetch failed:', err);
+    strip.classList.remove('has-data');
+  }
+}
+
+function paintWaveform() {
+  const canvas = document.getElementById('waveform-canvas');
+  if (!canvas || !waveformSamples) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth;
+  const cssH = canvas.clientHeight;
+  if (cssW === 0 || cssH === 0) return;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  // Resolve accent color from CSS custom property for theme parity.
+  const css = getComputedStyle(document.documentElement);
+  const accent = (css.getPropertyValue('--accent') || '#6366f1').trim();
+  ctx.fillStyle = accent;
+
+  const n = waveformSamples.length;
+  const barW = cssW / n;
+  const mid = cssH / 2;
+  const drawW = Math.max(1, Math.floor(barW));
+  for (let i = 0; i < n; i++) {
+    const v = waveformSamples[i];
+    const h = Math.max(1, v * (cssH * 0.9));
+    const x = Math.floor(i * barW);
+    const y = mid - h / 2;
+    ctx.fillRect(x, y, drawW, h);
+  }
+}
+
+// Repaint on resize so the waveform stays sharp when the window changes width.
+let waveformResizeRaf = 0;
+window.addEventListener('resize', () => {
+  if (waveformResizeRaf) cancelAnimationFrame(waveformResizeRaf);
+  waveformResizeRaf = requestAnimationFrame(() => {
+    waveformResizeRaf = 0;
+    paintWaveform();
+  });
+});
+
+// Click on the waveform strip to seek
+const waveformStripEl = document.getElementById('waveform-strip');
+if (waveformStripEl) {
+  waveformStripEl.addEventListener('click', (e) => {
+    scrubFromWaveformX(e.clientX);
+  });
 }
 
 video.addEventListener('timeupdate', () => {
@@ -2725,7 +2871,10 @@ video.addEventListener('timeupdate', () => {
     stopAudio();
   }
   timelineProgress.style.width = ((currentMs / totalMs) * 100) + '%';
-  document.getElementById('timeline-playhead').style.left = ((currentMs / totalMs) * 100) + '%';
+  const pctStr = ((currentMs / totalMs) * 100) + '%';
+  document.getElementById('timeline-playhead').style.left = pctStr;
+  const wfPlayhead = document.getElementById('waveform-playhead');
+  if (wfPlayhead) wfPlayhead.style.left = pctStr;
   document.getElementById('time-current').textContent = formatTime(currentMs);
   updateSceneScrubUI(currentMs);
 
@@ -2761,8 +2910,22 @@ function scrubToX(clientX) {
   // Update UI immediately
   const ms = targetSec * 1000;
   document.getElementById('time-current').textContent = formatTime(ms);
-  timelineProgress.style.width = (pct * 100) + '%';
-  document.getElementById('timeline-playhead').style.left = (pct * 100) + '%';
+  const pctStr = (pct * 100) + '%';
+  timelineProgress.style.width = pctStr;
+  document.getElementById('timeline-playhead').style.left = pctStr;
+  const wfPlayhead = document.getElementById('waveform-playhead');
+  if (wfPlayhead) wfPlayhead.style.left = pctStr;
+}
+
+// Click on waveform strip to seek (mirror timeline-bar scrub behavior)
+function scrubFromWaveformX(clientX) {
+  const strip = document.getElementById('waveform-strip');
+  if (!strip) return;
+  const rect = strip.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const dur = video.duration;
+  if (!dur || !Number.isFinite(dur)) return;
+  video.currentTime = pct * dur;
 }
 
 timelineBar.addEventListener('mousedown', (e) => {

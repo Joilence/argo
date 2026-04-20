@@ -276,6 +276,7 @@ Custom `test` fixture extends Playwright's `test` with a `narration` fixture tha
 - Preview reads `headTrimMs` from `.meta.json` to shift timeline — only shifts when metadata confirms trimming was applied (standalone `argo export` produces untrimmed video)
 - Preview UI follows system light/dark mode via `prefers-color-scheme` CSS media query
 - Frame & Background panel: collapsible sidebar panel for configuring frame effect (padding, border radius, shadow + color, background type). Supports solid, gradient, auto (probes video edge colors via `/api/probe-auto-bg`), and image backgrounds. Live CSS preview in the video container. Settings persist to `.argo/<demo>/frame-config.json` sidecar (survives server restarts). Sidecar takes priority over `export.frame` in config module for both UI load and export paths. Auto background probe uses raw recording (not exported MP4) to match export behavior.
+- Waveform strip above the timeline-bar: `/api/waveform?samples=N` serves downsampled peak amplitudes (normalized to `[0,1]`) computed by `src/preview-waveform.ts` from `narration-aligned.wav`. Cached per-process by file mtime + bucket count, so repeated requests during a session are cheap. The client paints to a `<canvas>` with DPR-aware scaling, repaints on window resize, mirrors the timeline playhead via `#waveform-playhead`, and routes click-to-seek through `scrubFromWaveformX`. Empty state ("No narration audio yet…") shows when the WAV is missing or unparseable.
 
 ## Thumbnail
 
