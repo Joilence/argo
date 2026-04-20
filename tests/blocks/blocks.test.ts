@@ -368,3 +368,160 @@ describe('logo-outro block', () => {
     expect(result.contentHtml).not.toContain('<i>tag</i>');
   });
 });
+
+describe('flowchart block', () => {
+  it('renders title and one node per entry, with arrows between', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'flowchart',
+      props: {
+        title: 'Pipeline',
+        nodes: [{ label: 'Start' }, { label: 'Build', kind: 'accent' }, { label: 'Done', kind: 'success' }],
+      },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Pipeline');
+    expect(result.contentHtml).toContain('Start');
+    expect(result.contentHtml).toContain('Build');
+    expect(result.contentHtml).toContain('Done');
+    // 3 nodes → 2 arrows
+    const arrowCount = (result.contentHtml.match(/argo-flow-arrow/g) ?? []).length;
+    expect(arrowCount).toBe(2);
+  });
+
+  it('handles empty nodes array without crashing', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'flowchart',
+      props: { nodes: [] },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('argo-flow-node');
+  });
+
+  it('escapes HTML in node labels', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'flowchart',
+      props: { nodes: [{ label: '<script>1</script>' }] },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('<script>1</script>');
+    expect(result.contentHtml).toContain('&lt;script&gt;');
+  });
+
+  it('uses success color for kind=success', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'flowchart',
+      props: { nodes: [{ label: 'OK', kind: 'success' }] },
+    }, 'dark');
+    expect(result.contentHtml).toContain('#22c55e');
+  });
+
+  it('staggers reveal across nodes and arrows', () => {
+    const block = getBlock('flowchart');
+    const motion = block.defaultMotion as { in?: { stagger?: number; target?: string } };
+    expect(motion.in?.stagger).toBeGreaterThan(0);
+    expect(motion.in?.target).toContain('argo-flow-node');
+  });
+});
+
+describe('app-showcase block', () => {
+  it('renders title, subtitle, and CTA', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'app-showcase',
+      props: { title: 'Argo', subtitle: 'Demo videos, locally', cta: 'Get started' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Argo');
+    expect(result.contentHtml).toContain('Demo videos, locally');
+    expect(result.contentHtml).toContain('Get started');
+  });
+
+  it('renders provided hero image when image prop set', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'app-showcase',
+      props: { title: 'X', image: 'https://example.com/icon.png' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('https://example.com/icon.png');
+    expect(result.contentHtml).toContain('argo-app-hero');
+  });
+
+  it('falls back to gradient initial when no image', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'app-showcase',
+      props: { title: 'Argo' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('>A</div>');
+    expect(result.contentHtml).not.toContain('<img');
+  });
+
+  it('omits CTA pill when prop missing', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'app-showcase',
+      props: { title: 'Argo' },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('argo-app-cta');
+  });
+
+  it('ships a hero float loop', () => {
+    const block = getBlock('app-showcase');
+    const motion = block.defaultMotion as { loop?: { target?: string } };
+    expect(motion.loop?.target).toBe('.argo-app-hero');
+  });
+
+  it('escapes HTML in all fields', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'app-showcase',
+      props: { title: '<b>T</b>', subtitle: '<i>s</i>', cta: '<u>c</u>' },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('<b>T</b>');
+    expect(result.contentHtml).not.toContain('<i>s</i>');
+    expect(result.contentHtml).not.toContain('<u>c</u>');
+  });
+});
+
+describe('ui-3d-reveal block', () => {
+  it('renders the image with the 3d hook class', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'ui-3d-reveal',
+      props: { image: 'https://example.com/screen.png', caption: 'Dashboard' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('https://example.com/screen.png');
+    expect(result.contentHtml).toContain('argo-3d-image');
+    expect(result.contentHtml).toContain('Dashboard');
+  });
+
+  it('omits caption when not provided', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'ui-3d-reveal',
+      props: { image: 'https://example.com/screen.png' },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('argo-3d-caption');
+  });
+
+  it('uses provided perspective px value', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'ui-3d-reveal',
+      props: { image: 'x.png', perspective: 800 },
+    }, 'dark');
+    expect(result.contentHtml).toContain('perspective:800px');
+  });
+
+  it('falls back to default perspective when invalid', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'ui-3d-reveal',
+      props: { image: 'x.png', perspective: -1 },
+    }, 'dark');
+    expect(result.contentHtml).toContain('perspective:1200px');
+  });
+
+  it('ships a 3d entrance targeting the image', () => {
+    const block = getBlock('ui-3d-reveal');
+    const motion = block.defaultMotion as { in?: { target?: string; from?: { rotationX?: number } } };
+    expect(motion.in?.target).toBe('.argo-3d-image');
+    expect(motion.in?.from?.rotationX).toBeGreaterThan(0);
+  });
+
+  it('escapes HTML in image URL and caption', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'ui-3d-reveal',
+      props: { image: '"><script>alert(1)</script>', caption: '<b>c</b>' },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('"><script>');
+    expect(result.contentHtml).not.toContain('<b>c</b>');
+  });
+});

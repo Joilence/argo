@@ -8,6 +8,9 @@ import { instagramFollowBlock } from './instagram-follow/template.js';
 import { tiktokFollowBlock } from './tiktok-follow/template.js';
 import { redditPostBlock } from './reddit-post/template.js';
 import { logoOutroBlock } from './logo-outro/template.js';
+import { flowchartBlock } from './flowchart/template.js';
+import { appShowcaseBlock } from './app-showcase/template.js';
+import { ui3dRevealBlock } from './ui-3d-reveal/template.js';
 
 /**
  * Compile-time registry. Each block is a self-contained folder under
@@ -27,6 +30,9 @@ export const BLOCK_REGISTRY = {
   'tiktok-follow': tiktokFollowBlock,
   'reddit-post': redditPostBlock,
   'logo-outro': logoOutroBlock,
+  'flowchart': flowchartBlock,
+  'app-showcase': appShowcaseBlock,
+  'ui-3d-reveal': ui3dRevealBlock,
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as const satisfies Record<string, BlockDefinition<any>>;
 

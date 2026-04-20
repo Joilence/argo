@@ -109,7 +109,7 @@ Blocks plug into `renderTemplate()` via the `type: 'block'` cue variant. Props m
 
 Static v1 blocks: `x-post`, `macos-notification`, `yt-lower-third`, `data-chart`, `spotify-card`.
 
-Animated blocks (ship with `defaultMotion` using GSAP): `instagram-follow` (pulsing Follow button), `tiktok-follow` (rotating avatar ring + side slide), `reddit-post` (upvote card, simple entrance), `logo-outro` (scale-in end-card). These use `BlockDefinition.defaultMotion` — a cue-level `motion` still overrides. Inspired by hyperframes blocks of the same names (Apache-2.0); implementations are original. Selector hooks used by the motion loops: `.argo-ig-follow-btn`, `.argo-tt-ring`.
+Animated blocks (ship with `defaultMotion` using GSAP): `instagram-follow` (pulsing Follow button), `tiktok-follow` (rotating avatar ring + side slide), `reddit-post` (upvote card, simple entrance), `logo-outro` (scale-in end-card), `flowchart` (stacked nodes + arrows revealed with stagger), `app-showcase` (hero card with floating icon loop), `ui-3d-reveal` (perspective tilt-to-flat reveal of a screenshot). These use `BlockDefinition.defaultMotion` — a cue-level `motion` still overrides. Inspired by hyperframes blocks of the same names (Apache-2.0); implementations are original. Selector hooks used by motion loops/staggers: `.argo-ig-follow-btn`, `.argo-tt-ring`, `.argo-app-hero`, `.argo-3d-image`, `.argo-flow-node, .argo-flow-arrow`.
 
 Folder format is designed for a future `argo add <block>` command (not shipped yet).
 
