@@ -29,6 +29,7 @@ export default defineConfig({
   },
   overlays: {
     autoBackground: true,     // auto-detect dark/light for overlay contrast
+    // allowRawGsap: true,    // enable `motion.raw` escape hatch (off by default)
   },
 });
 ```

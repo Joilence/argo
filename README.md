@@ -235,7 +235,7 @@ Options:
 
 ### Overlay Blocks
 
-Argo ships 5 curated overlay blocks for demo narratives. Reference them from `.scenes.json`:
+Argo ships 12 curated overlay blocks for demo narratives. Reference them from `.scenes.json`:
 
 ```json
 {
@@ -254,7 +254,7 @@ Argo ships 5 curated overlay blocks for demo narratives. Reference them from `.s
 }
 ```
 
-Available blocks:
+**Static blocks** (use CSS-preset motion):
 
 | Block | Purpose |
 |-------|---------|
@@ -263,6 +263,40 @@ Available blocks:
 | `yt-lower-third` | YouTube-style lower third for speaker intros |
 | `data-chart` | Compact bar/line chart for metrics |
 | `spotify-card` | Now-playing card for decorative inserts |
+
+**Animated blocks** (ship with a GSAP `defaultMotion` — cue-level `motion` still overrides):
+
+| Block | Motion |
+|-------|--------|
+| `instagram-follow` | Back-easing scale-in entrance + pulsing Follow button |
+| `tiktok-follow` | Side-slide entrance + rotating gradient avatar ring |
+| `reddit-post` | Simple slide-up entrance + fade-out |
+| `logo-outro` | Scale-in end-card with back.out ease |
+| `flowchart` | Staggered reveal across nodes and arrows |
+| `app-showcase` | Back-eased hero entrance + slow floating icon loop |
+| `ui-3d-reveal` | Perspective tilt-to-flat reveal with a subtle wobble loop |
+
+### GSAP motion (advanced)
+
+Every overlay supports two kinds of `motion`: a named CSS preset (`none`, `fade-in`, `slide-in`) or a declarative GSAP motion object with `in`, `out`, and `loop` phases. `showOverlay(page, scene, durationMs)` auto-times the exit so the visible window matches `durationMs`:
+
+```json
+{
+  "scene": "hero",
+  "overlay": {
+    "type": "headline-card",
+    "title": "Argo",
+    "kicker": "Demo videos, locally",
+    "motion": {
+      "type": "gsap",
+      "in":  { "from": { "y": 40, "opacity": 0 }, "duration": 0.5, "ease": "back.out" },
+      "out": { "to":   { "opacity": 0, "y": -20 }, "duration": 0.3, "ease": "power2.in" }
+    }
+  }
+}
+```
+
+`GsapTween` fields: `from` / `to` / `fromTo`, `duration`, `delay`, `ease`, `stagger`, `target` (CSS selector inside the overlay root), `repeat`, `yoyo`. Allowed eases and animation vars are whitelisted; `argo validate` rejects unknown values. Raw GSAP code via `motion.raw` is off by default — enable with `overlays.allowRawGsap: true` if you need the escape hatch. GSAP ships with Argo and is injected into the recording page on demand.
 
 Blocks live under `src/blocks/<name>/` — see [demos/blocks-showcase](demos/blocks-showcase.demo.ts) for a complete example.
 
@@ -563,7 +597,7 @@ View all demos at a glance:
 npx argo preview
 ```
 
-Opens a dashboard listing every discovered demo with build status, video size, resolution, and quick-action links. Run `argo preview <demo>` for the single-demo editor.
+Opens a dashboard listing every discovered demo with build status, video size, resolution, and quick-action links. Run `argo preview <demo>` for the single-demo editor — scene list, overlay editor, frame & background panel, and a **waveform strip** painted from the aligned narration WAV (click-to-seek, mirrored playhead).
 
 ### Video Import
 

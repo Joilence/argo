@@ -196,21 +196,53 @@ Five types, each with a `type` discriminant. All support `placement`, `motion`, 
 
 **Zones:** `bottom-center` (default) | `top-left` | `top-right` | `bottom-left` | `bottom-right` | `center`. One overlay per zone; different zones can show simultaneously. Prefer `top-right`/`bottom-right` for apps with left sidebars.
 
-**Motion:** `none` (instant) | `fade-in` (300ms) | `slide-in` (400ms)
+**Motion:** Two options — a named CSS preset or a GSAP motion object.
+
+- **CSS presets** (no runtime cost): `none` (instant) | `fade-in` (300ms) | `slide-in` (400ms)
+- **GSAP motion** (bundled, ~73KB injected on demand): `{ "type": "gsap", "in": {...}, "out": {...}, "loop": {...} }` — each phase is a declarative tween (`from` / `to` / `fromTo`, `duration`, `delay`, `ease`, `stagger`, `target`, `repeat`, `yoyo`). Entrance timing is automatic: `showOverlay(page, scene, durationMs)` fires `in`, holds, then fires `out` so the visible window matches `durationMs`.
+
+  ```json
+  {
+    "scene": "hero",
+    "overlay": {
+      "type": "headline-card",
+      "title": "Argo",
+      "motion": {
+        "type": "gsap",
+        "in":  { "from": { "y": 40, "opacity": 0 }, "duration": 0.5, "ease": "back.out" },
+        "out": { "to":   { "opacity": 0, "y": -20 }, "duration": 0.3, "ease": "power2.in" }
+      }
+    }
+  }
+  ```
+
+  Allowed eases and animation vars are whitelisted — `argo validate` rejects unknown values. `motion.raw` (arbitrary GSAP code) is off by default; enable with `overlays.allowRawGsap: true` in `argo.config.mjs` if you need the escape hatch.
 
 **Auto background:** Set `autoBackground: true` to auto-detect page contrast. Skips fixed/sticky elements (navbars).
 
 ### Overlay blocks
 
-Argo ships 5 ready-to-use blocks for narrative inserts:
+Argo ships 12 ready-to-use blocks for narrative inserts. Reference via `overlay: { type: 'block', block: '<name>', props: { ... } }` in `.scenes.json`.
+
+**Static blocks** (CSS-preset motion):
 
 - `x-post` — fake social post (social proof)
 - `macos-notification` — system-style banner (in-product events)
 - `yt-lower-third` — speaker intro styling
 - `data-chart` — compact bar/line chart (metrics)
-- `spotify-card` — now-playing (decorative)
+- `spotify-card` — now-playing card (decorative)
 
-Reference via `overlay: { type: 'block', block: '<name>', props: { ... } }` in `.scenes.json`. See `demos/blocks-showcase.demo.ts` for a full example.
+**Animated blocks** (ship with a `defaultMotion` GSAP entrance/exit that the cue can override):
+
+- `instagram-follow` — IG-style follow notification with a pulsing Follow CTA
+- `tiktok-follow` — TikTok-style follow card with a rotating gradient avatar ring
+- `reddit-post` — subreddit + title + upvote/comment counts (`k`/`M` formatting)
+- `logo-outro` — scale-in end-card with logo (or initial-letter fallback), title, and tagline
+- `flowchart` — stacked node cards + arrows revealed with stagger; node `kind` enum: `default`, `success`, `warn`, `accent`
+- `app-showcase` — hero card with floating icon loop, title, subtitle, and CTA pill
+- `ui-3d-reveal` — perspective-tilt reveal of a screenshot with a subtle wobble loop
+
+See `demos/blocks-showcase.demo.ts` for a full example. Block sources live under `src/blocks/<name>/` with a `block.json` schema and a `template.ts` exporting the `BlockDefinition` (+ optional `defaultMotion`). Animated blocks credit HyperFrames (Apache-2.0) for inspiration in their `block.json`.
 
 ### How Overlays Get Triggered
 
@@ -359,6 +391,8 @@ Argo demos are standard Playwright tests — they show up in VS Code's Playwrigh
 ### Preview Iteration Workflow
 
 Run `argo pipeline` once, then `argo preview` to iterate on voiceover and overlays without re-recording. Preview provides editable text/voice/speed per scene, per-scene TTS regeneration, overlay editing, and a Save button that persists to manifests. Only re-run `pipeline` when the demo script changes.
+
+A **waveform strip** sits above the timeline-bar, painted from the aligned narration WAV (`narration-aligned.wav`). Click anywhere on the strip to seek; the playhead mirrors the timeline. Shows an empty-state message on silent demos where no narration exists yet.
 
 ### `about:blank` + `setContent()` Pattern
 

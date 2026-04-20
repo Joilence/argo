@@ -244,6 +244,7 @@ Custom `test` fixture extends Playwright's `test` with a `narration` fixture tha
 - `ARGO_SCENE_DURATIONS_PATH` — path to `.scene-durations.json` (loaded by narration fixture)
 - `ARGO_OVERLAYS_PATH` — path to `.scenes.json` manifest (loaded by overlay functions for manifest-based resolution)
 - `ARGO_AUTO_BACKGROUND` — set to `'1'` when config `overlays.autoBackground` is true
+- `ARGO_ALLOW_RAW_GSAP` — set to `'1'` when config `overlays.allowRawGsap` is true. Re-checked by the runtime before executing `motion.raw` (defense in depth against inline cues that skip the validator).
 - `ARGO_OUTPUT_DIR` — output directory for timing JSON
 - `DEBUG` — when set (e.g., `DEBUG=pw:api`), Playwright debug output is forwarded to stderr even on success
 
