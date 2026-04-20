@@ -143,6 +143,10 @@ export interface ExportConfig {
 export interface OverlayConfig {
   autoBackground: boolean;
   defaultPlacement?: 'bottom-center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
+  /** Enable the `motion.raw` escape hatch for GSAP motions. Off by default —
+   *  raw is executed via `new Function()` on the page, same blast radius as
+   *  config files themselves. Only enable if you trust your manifest sources. */
+  allowRawGsap?: boolean;
 }
 
 export interface ArgoConfig {

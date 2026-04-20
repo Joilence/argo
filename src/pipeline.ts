@@ -138,6 +138,7 @@ export async function runPipeline(
     contextOptions: config.video.contextOptions,
     autoBackground: config.overlays.autoBackground,
     defaultPlacement: config.overlays.defaultPlacement,
+    allowRawGsap: config.overlays.allowRawGsap,
     headed: pipelineOpts?.headed,
   });
 
@@ -443,6 +444,7 @@ export async function runPipeline(
         contextOptions: config.video.contextOptions,
         autoBackground: config.overlays.autoBackground,
         defaultPlacement: config.overlays.defaultPlacement,
+        allowRawGsap: config.overlays.allowRawGsap,
         headed: pipelineOpts?.headed,
         argoSubdir: variantSubdir,
       });

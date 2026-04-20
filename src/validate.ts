@@ -1,9 +1,12 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { isGsapMotion, validateGsapMotion } from './overlays/gsap-motion.js';
 
 export interface ValidateOptions {
   demoName: string;
   demosDir: string;
+  /** Mirrors config `overlays.allowRawGsap`. When true, `motion.raw` is accepted. */
+  allowRawGsap?: boolean;
 }
 
 export interface ValidateResult {
@@ -76,8 +79,22 @@ export async function validateDemo(options: ValidateOptions): Promise<ValidateRe
             if (ov.placement && !validPlacements.has(ov.placement)) {
               errors.push(`Scene "${entry.scene}" overlay: unknown placement "${ov.placement}"`);
             }
-            if (ov.motion && !validMotions.has(ov.motion)) {
-              errors.push(`Scene "${entry.scene}" overlay: unknown motion "${ov.motion}"`);
+            if (ov.motion !== undefined) {
+              if (typeof ov.motion === 'string') {
+                if (!validMotions.has(ov.motion)) {
+                  errors.push(`Scene "${entry.scene}" overlay: unknown motion "${ov.motion}"`);
+                }
+              } else if (isGsapMotion(ov.motion)) {
+                const gsapErrors = validateGsapMotion(ov.motion, { allowRaw: options.allowRawGsap });
+                for (const e of gsapErrors) {
+                  const suffix = e.path ? ` (${e.path})` : '';
+                  errors.push(`Scene "${entry.scene}" overlay.motion${suffix}: ${e.message}`);
+                }
+              } else {
+                errors.push(
+                  `Scene "${entry.scene}" overlay: motion must be a string preset or a GSAP motion object (type: 'gsap')`,
+                );
+              }
             }
             // Validate block-specific fields
             if (ov.type === 'block') {

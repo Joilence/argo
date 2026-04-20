@@ -21,7 +21,13 @@ export type TemplateType = (typeof TEMPLATE_TYPES)[number];
 
 export const MOTIONS = ['none', 'fade-in', 'slide-in'] as const;
 
-export type MotionPreset = (typeof MOTIONS)[number];
+export type MotionPresetName = (typeof MOTIONS)[number];
+
+import type { GsapMotion } from './gsap-motion.js';
+export type { GsapMotion, GsapTween, GsapEase, GsapVars } from './gsap-motion.js';
+
+/** Either a named preset (`'fade-in'`, `'slide-in'`) or a GSAP motion object. */
+export type MotionPreset = MotionPresetName | GsapMotion;
 
 export interface LowerThirdCue {
   type: 'lower-third';
@@ -173,6 +179,16 @@ export function isValidTemplateType(value: string): value is TemplateType {
   return (TEMPLATE_TYPES as readonly string[]).includes(value);
 }
 
-export function isValidMotion(value: string): value is MotionPreset {
+export function isValidMotion(value: unknown): value is MotionPreset {
+  if (typeof value === 'string') {
+    return (MOTIONS as readonly string[]).includes(value);
+  }
+  if (typeof value === 'object' && value !== null) {
+    return (value as { type?: unknown }).type === 'gsap';
+  }
+  return false;
+}
+
+export function isValidMotionName(value: string): value is MotionPresetName {
   return (MOTIONS as readonly string[]).includes(value);
 }

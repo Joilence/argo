@@ -332,7 +332,11 @@ export function createProgram(): Command {
       validateDemoName(demo);
       const configPath = program.opts().config;
       const config = await loadConfigForDemo(demo, configPath);
-      const result = await validateDemo({ demoName: demo, demosDir: config.demosDir });
+      const result = await validateDemo({
+        demoName: demo,
+        demosDir: config.demosDir,
+        allowRawGsap: config.overlays.allowRawGsap,
+      });
 
       for (const err of result.errors) {
         console.error(`  ERROR: ${err}`);

@@ -1,13 +1,17 @@
 import type { Page } from '@playwright/test';
-import type { OverlayCue, Zone } from './types.js';
+import type { OverlayCue, Zone, MotionPreset } from './types.js';
 import { injectIntoZone, removeZone, ZONE_ID_PREFIX, detectBackgroundTheme } from './zones.js';
 import type { BackgroundTheme } from './zones.js';
 import { renderTemplate } from './templates.js';
 import { getMotionCSS, getMotionStyles } from './motion.js';
+import { isGsapMotion } from './gsap-motion.js';
+import { runGsapEntrance, runGsapExit, gsapExitWallMs } from './gsap-runtime.js';
 import { loadOverlayFromManifest } from './manifest-loader.js';
+import { getBlock, isValidBlockName } from '../blocks/index.js';
 
 export type { OverlayCue, OverlayManifestEntry, Zone, TemplateType, MotionPreset } from './types.js';
 export type { SceneEntry } from './types.js';
+export type { GsapMotion, GsapTween, GsapEase, GsapVars } from './gsap-motion.js';
 export { renderTemplate } from './templates.js';
 export type { BackgroundTheme } from './zones.js';
 export { resetManifestCache } from './manifest-loader.js';
@@ -24,6 +28,10 @@ function getConfigDefaultPlacement(): Zone | undefined {
   return undefined;
 }
 
+export function isRawGsapAllowed(): boolean {
+  return process.env.ARGO_ALLOW_RAW_GSAP === '1';
+}
+
 async function resolveTheme(
   page: Page,
   cue: OverlayCue,
@@ -33,6 +41,21 @@ async function resolveTheme(
   const shouldDetect = cue.autoBackground ?? optionsAutoBackground ?? getConfigAutoBackground();
   if (!shouldDetect) return 'dark';
   return detectBackgroundTheme(page, zone);
+}
+
+/**
+ * Resolve the motion for a cue. Order of precedence:
+ *   1. `cue.motion` (explicit on the cue)
+ *   2. `block.defaultMotion` when the cue is a block cue
+ *   3. `'none'`
+ */
+export function resolveMotion(cue: OverlayCue): MotionPreset {
+  if (cue.motion !== undefined) return cue.motion;
+  if (cue.type === 'block' && isValidBlockName(cue.block)) {
+    const block = getBlock(cue.block);
+    if (block.defaultMotion !== undefined) return block.defaultMotion;
+  }
+  return 'none';
 }
 
 export function resolveCue(scene: string, cueOrPartial?: OverlayCue | Partial<OverlayCue>): OverlayCue {
@@ -88,7 +111,7 @@ export async function showOverlay(
   }
 
   const zone: Zone = cue.placement ?? getConfigDefaultPlacement() ?? 'bottom-center';
-  const motion = cue.motion ?? 'none';
+  const motion = resolveMotion(cue);
   const theme = await resolveTheme(page, cue, zone, opts?.autoBackground);
   const { contentHtml, styles } = renderTemplate(cue, theme);
   const zoneId = ZONE_ID_PREFIX + zone;
@@ -99,7 +122,17 @@ export async function showOverlay(
   // been replaced by a newer overlay in the same zone (fire-and-forget safe).
   const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await injectIntoZone(page, zone, contentHtml, { ...styles, ...motionStyles }, motionCSS, instanceId);
-  await page.waitForTimeout(durationMs);
+
+  if (isGsapMotion(motion)) {
+    await runGsapEntrance(page, zoneId, motion);
+    const exitMs = gsapExitWallMs(motion);
+    const holdMs = Math.max(0, durationMs - exitMs);
+    await page.waitForTimeout(holdMs);
+    if (motion.out) await runGsapExit(page, zoneId, motion);
+  } else {
+    await page.waitForTimeout(durationMs);
+  }
+
   await removeZone(page, zone, instanceId);
 }
 
@@ -147,7 +180,7 @@ export async function withOverlay(
   }
 
   const zone: Zone = cue.placement ?? getConfigDefaultPlacement() ?? 'bottom-center';
-  const motion = cue.motion ?? 'none';
+  const motion = resolveMotion(cue);
   const theme = await resolveTheme(page, cue, zone, opts?.autoBackground);
   const { contentHtml, styles } = renderTemplate(cue, theme);
   const zoneId = ZONE_ID_PREFIX + zone;
@@ -156,9 +189,15 @@ export async function withOverlay(
 
   const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await injectIntoZone(page, zone, contentHtml, { ...styles, ...motionStyles }, motionCSS, instanceId);
+  if (isGsapMotion(motion)) {
+    await runGsapEntrance(page, zoneId, motion);
+  }
   try {
     await action();
   } finally {
+    if (isGsapMotion(motion) && motion.out) {
+      await runGsapExit(page, zoneId, motion);
+    }
     await removeZone(page, zone, instanceId);
   }
 }

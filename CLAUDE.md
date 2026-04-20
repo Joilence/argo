@@ -91,6 +91,16 @@ Overlay cues use discriminated unions — each template type has its own TypeScr
 
 Overlay injection includes a no-op `page.evaluate(() => {})` fence before injecting to flush pending browser renders. Apps with aggressive DOM updates (like sift's table engine) can remove freshly injected elements if they have a render cycle queued from the same tick as `narration.mark()`. The fence adds one CDP round-trip (~1-5ms) but prevents flashing. Fire-and-forget `showOverlay` calls use instance IDs — `removeZone` only removes if the element's instance matches, preventing a previous scene's cleanup from killing a newer overlay in the same zone.
 
+### GSAP Motion (`src/overlays/gsap-motion.ts`, `src/overlays/gsap-runtime.ts`)
+
+Overlays accept a GSAP-driven `motion` object alongside the CSS presets. `MotionPreset = 'none' | 'fade-in' | 'slide-in' | GsapMotion`. A `GsapMotion` has up to three phases — `in` (entrance), `out` (exit), `loop` (continuous) — each a declarative `GsapTween` (`from` / `to` / `fromTo`, `duration`, `delay`, `ease`, `stagger`, `target`, `repeat`, `yoyo`). `BlockDefinition.defaultMotion` lets a block ship its own entrance; cue-level `motion` overrides. `resolveMotion(cue)` returns cue → block → `'none'`.
+
+Runtime: GSAP's UMD bundle (`node_modules/gsap/dist/gsap.min.js`, ~73KB) is read once per Node process (cached) and injected lazily into each page via `page.addScriptTag({ content })`. A `WeakSet<Page>` tracks injection per page; pages that already expose `window.gsap` are left alone. `showOverlay` times the exit so the visible window lands at the requested `durationMs`: `hold = durationMs - (out.duration + out.delay) * 1000`, then `out` fires, then `removeZone`. `withOverlay` fires `in` (+ `loop` if present) after inject and `out` before remove inside the `finally` block. `motion.ts` returns empty CSS/styles for GsapMotion — GSAP applies its own inline styles.
+
+Security: `GSAP_EASES` and `GSAP_VAR_KEYS` whitelists reject unknown easings and animation props at `argo validate` time. `motion.raw` (a string executed via `new Function('gsap', 'root', raw)`) is gated by `config.overlays.allowRawGsap` — the validator rejects it when false, and the runtime also re-checks `ARGO_ALLOW_RAW_GSAP=1` before executing. Both layers matter: inline cues passed to `showOverlay` never hit the validator.
+
+Env bridge: `config.overlays.allowRawGsap` → `record()` → `ARGO_ALLOW_RAW_GSAP` → Playwright subprocess → `gsap-runtime.ts`. All config-to-Playwright bridges must be added in both `src/pipeline.ts` call sites (primary + variants).
+
 ### Blocks (`src/blocks/`)
 
 Curated overlay catalog. Each block is self-contained under `src/blocks/<name>/` with a `block.json` metadata file and a `template.ts` exporting a `BlockDefinition`. `src/blocks/index.ts` is a const-typed barrel — `BlockName` is a literal union derived from `keyof typeof BLOCK_REGISTRY`.

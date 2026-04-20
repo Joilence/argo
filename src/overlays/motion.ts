@@ -1,6 +1,12 @@
 import type { MotionPreset } from './types.js';
+import { isGsapMotion } from './gsap-motion.js';
 
+/**
+ * CSS keyframe rule for a named motion preset. GSAP motions return an empty
+ * string — GSAP applies its own inline styles at runtime via `runGsapMotion`.
+ */
 export function getMotionCSS(motion: MotionPreset, elementId: string): string {
+  if (isGsapMotion(motion)) return '';
   const animName = `argo-${motion}-${elementId}`;
   switch (motion) {
     case 'fade-in':
@@ -14,6 +20,7 @@ export function getMotionCSS(motion: MotionPreset, elementId: string): string {
 }
 
 export function getMotionStyles(motion: MotionPreset, elementId: string): Record<string, string> {
+  if (isGsapMotion(motion)) return {};
   const animName = `argo-${motion}-${elementId}`;
   switch (motion) {
     case 'fade-in':

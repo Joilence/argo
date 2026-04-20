@@ -16,6 +16,7 @@ export interface RecordOptions {
   contextOptions?: Record<string, unknown>;
   autoBackground?: boolean;
   defaultPlacement?: string;
+  allowRawGsap?: boolean;
   headed?: boolean;
   /** Override the .argo subdirectory name (for variants). Default: demoName. */
   argoSubdir?: string;
@@ -151,6 +152,7 @@ export async function record(demoName: string, options: RecordOptions): Promise<
           ARGO_ASSET_URL: assetServer?.url ?? '',
           ARGO_AUTO_BACKGROUND: options.autoBackground ? '1' : '',
           ARGO_DEFAULT_PLACEMENT: options.defaultPlacement ?? '',
+          ARGO_ALLOW_RAW_GSAP: options.allowRawGsap ? '1' : '',
           ARGO_SCENE_DURATIONS_PATH: path.resolve(path.join('.argo', demoName, '.scene-durations.json')),
           ARGO_OVERLAYS_PATH: path.resolve(path.join(options.demosDir, `${demoName}.scenes.json`)),
         },

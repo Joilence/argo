@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { showOverlay, hideOverlay, withOverlay, resolveCue } from '../../src/overlays/index.js';
+import { showOverlay, hideOverlay, withOverlay, resolveCue, resolveMotion } from '../../src/overlays/index.js';
 import { resetManifestCache } from '../../src/overlays/manifest-loader.js';
 import type { Page } from '@playwright/test';
 import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
@@ -163,6 +163,20 @@ describe('manifest-based resolution', () => {
     it('uses inline cue when manifest has no entry for scene', () => {
       const cue = resolveCue('nonexistent', { type: 'lower-third', text: 'Inline' });
       expect(cue).toEqual({ type: 'lower-third', text: 'Inline' });
+    });
+  });
+
+  describe('resolveMotion', () => {
+    it('returns cue.motion when set', () => {
+      expect(resolveMotion({ type: 'lower-third', text: 'x', motion: 'fade-in' })).toBe('fade-in');
+    });
+    it('falls back to "none" when cue has no motion and no block default', () => {
+      expect(resolveMotion({ type: 'lower-third', text: 'x' })).toBe('none');
+    });
+    it('returns GsapMotion objects intact', () => {
+      const motion = { type: 'gsap' as const, in: { to: { opacity: 1 } } };
+      const resolved = resolveMotion({ type: 'lower-third', text: 'x', motion });
+      expect(resolved).toEqual(motion);
     });
   });
 

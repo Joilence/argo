@@ -181,3 +181,85 @@ describe('validate — block cues', () => {
     expect(res.errors).toEqual([]);
   });
 });
+
+describe('validate — GSAP motions', () => {
+  let tmp: string;
+  let demosDir: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'argo-validate-gsap-'));
+    demosDir = join(tmp, 'demos');
+    mkdirSync(demosDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('accepts a well-formed GSAP motion object', async () => {
+    writeFileSync(join(demosDir, 'd.demo.ts'), `import { test } from '@argo-video/cli'; narration.mark('s1');`);
+    writeFileSync(join(demosDir, 'd.scenes.json'), JSON.stringify([
+      {
+        scene: 's1',
+        overlay: {
+          type: 'lower-third',
+          text: 'hi',
+          motion: {
+            type: 'gsap',
+            in: { from: { opacity: 0, y: 20 }, duration: 0.4, ease: 'power2.out' },
+          },
+        },
+      },
+    ]));
+    const res = await validateDemo({ demoName: 'd', demosDir });
+    expect(res.errors).toEqual([]);
+  });
+
+  it('rejects unknown GSAP eases', async () => {
+    writeFileSync(join(demosDir, 'd.demo.ts'), `import { test } from '@argo-video/cli'; narration.mark('s1');`);
+    writeFileSync(join(demosDir, 'd.scenes.json'), JSON.stringify([
+      {
+        scene: 's1',
+        overlay: {
+          type: 'lower-third',
+          text: 'hi',
+          motion: { type: 'gsap', in: { to: { opacity: 1 }, ease: 'wobble.out' } },
+        },
+      },
+    ]));
+    const res = await validateDemo({ demoName: 'd', demosDir });
+    expect(res.errors.some((e) => /overlay\.motion.*wobble/.test(e))).toBe(true);
+  });
+
+  it('rejects motion.raw without allowRawGsap', async () => {
+    writeFileSync(join(demosDir, 'd.demo.ts'), `import { test } from '@argo-video/cli'; narration.mark('s1');`);
+    writeFileSync(join(demosDir, 'd.scenes.json'), JSON.stringify([
+      {
+        scene: 's1',
+        overlay: {
+          type: 'lower-third',
+          text: 'hi',
+          motion: { type: 'gsap', raw: 'gsap.to(root, { opacity: 1 })' },
+        },
+      },
+    ]));
+    const res = await validateDemo({ demoName: 'd', demosDir });
+    expect(res.errors.some((e) => /allowRawGsap/.test(e))).toBe(true);
+  });
+
+  it('accepts motion.raw when allowRawGsap=true', async () => {
+    writeFileSync(join(demosDir, 'd.demo.ts'), `import { test } from '@argo-video/cli'; narration.mark('s1');`);
+    writeFileSync(join(demosDir, 'd.scenes.json'), JSON.stringify([
+      {
+        scene: 's1',
+        overlay: {
+          type: 'lower-third',
+          text: 'hi',
+          motion: { type: 'gsap', raw: 'gsap.to(root, { opacity: 1 })' },
+        },
+      },
+    ]));
+    const res = await validateDemo({ demoName: 'd', demosDir, allowRawGsap: true });
+    expect(res.errors).toEqual([]);
+  });
+});
