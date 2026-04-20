@@ -193,3 +193,178 @@ describe('spotify-card block', () => {
     expect(result.contentHtml).not.toContain('width:999%');
   });
 });
+
+describe('instagram-follow block', () => {
+  it('renders handle, name, and a Follow button by default', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'instagram-follow',
+      props: { handle: '@jane', name: 'Jane Doe' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Jane Doe');
+    expect(result.contentHtml).toContain('@jane');
+    expect(result.contentHtml).toContain('Follow</div>');
+    expect(result.contentHtml).toContain('argo-ig-follow-btn');
+  });
+
+  it('renders Following state when isFollowing=true', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'instagram-follow',
+      props: { handle: '@jane', name: 'Jane Doe', isFollowing: true },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Following');
+  });
+
+  it('renders verified badge when verified=true', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'instagram-follow',
+      props: { handle: '@j', name: 'J', verified: true },
+    }, 'dark');
+    expect(result.contentHtml).toContain('<svg');
+  });
+
+  it('escapes HTML in all fields', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'instagram-follow',
+      props: { handle: '@x', name: '<script>a</script>' },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('<script>a</script>');
+    expect(result.contentHtml).toContain('&lt;script&gt;');
+  });
+
+  it('ships a GSAP defaultMotion with in/out/loop phases', () => {
+    const block = getBlock('instagram-follow');
+    expect(block.defaultMotion).toBeTruthy();
+    const motion = block.defaultMotion as { type: string; in?: unknown; out?: unknown; loop?: unknown };
+    expect(motion.type).toBe('gsap');
+    expect(motion.in).toBeTruthy();
+    expect(motion.out).toBeTruthy();
+    expect(motion.loop).toBeTruthy();
+  });
+});
+
+describe('tiktok-follow block', () => {
+  it('renders handle, name, and a Follow button', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'tiktok-follow',
+      props: { handle: '@jane', name: 'Jane Doe' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Jane Doe');
+    expect(result.contentHtml).toContain('@jane');
+    expect(result.contentHtml).toContain('Follow');
+    expect(result.contentHtml).toContain('argo-tt-ring');
+  });
+
+  it('escapes HTML in fields', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'tiktok-follow',
+      props: { handle: '@x', name: '<img src=x>' },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('<img src=x>');
+  });
+
+  it('ships a rotation loop targeting the ring', () => {
+    const block = getBlock('tiktok-follow');
+    const motion = block.defaultMotion as { loop?: { target?: string; to?: { rotation?: number } } };
+    expect(motion.loop?.target).toBe('.argo-tt-ring');
+    expect(motion.loop?.to?.rotation).toBe(360);
+  });
+});
+
+describe('reddit-post block', () => {
+  it('renders subreddit, author, title, and counts', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'reddit-post',
+      props: {
+        subreddit: 'r/tech', author: 'u/alice', title: 'A great post',
+        timestamp: '3h ago', upvotes: 1200, comments: 84,
+      },
+    }, 'light');
+    expect(result.contentHtml).toContain('r/tech');
+    expect(result.contentHtml).toContain('u/alice');
+    expect(result.contentHtml).toContain('A great post');
+    expect(result.contentHtml).toContain('3h ago');
+    expect(result.contentHtml).toContain('1.2k');
+    expect(result.contentHtml).toContain('84');
+  });
+
+  it('formats six-digit counts in thousands, seven-digit in millions', () => {
+    const r1 = renderTemplate({
+      type: 'block', block: 'reddit-post',
+      props: { subreddit: 'r/x', author: 'u/a', title: 't', upvotes: 123456, comments: 10 },
+    }, 'dark');
+    expect(r1.contentHtml).toContain('123.5k');
+
+    const r2 = renderTemplate({
+      type: 'block', block: 'reddit-post',
+      props: { subreddit: 'r/x', author: 'u/a', title: 't', upvotes: 1_500_000, comments: 10 },
+    }, 'dark');
+    expect(r2.contentHtml).toContain('1.5M');
+  });
+
+  it('renders optional body when provided', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'reddit-post',
+      props: {
+        subreddit: 'r/x', author: 'u/a', title: 't',
+        body: 'Post body text here', upvotes: 1, comments: 0,
+      },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Post body text here');
+  });
+
+  it('escapes HTML in all fields', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'reddit-post',
+      props: {
+        subreddit: '<script>1</script>', author: 'u/a', title: '<b>t</b>', upvotes: 0, comments: 0,
+      },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('<script>1</script>');
+    expect(result.contentHtml).not.toContain('<b>t</b>');
+  });
+});
+
+describe('logo-outro block', () => {
+  it('renders title and tagline when provided', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'logo-outro',
+      props: { title: 'Argo', tagline: 'Demo videos, locally', accentColor: '#0ea5e9' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('Argo');
+    expect(result.contentHtml).toContain('Demo videos, locally');
+    expect(result.contentHtml).toContain('#0ea5e9');
+  });
+
+  it('renders logo mark image when logo URL provided', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'logo-outro',
+      props: { title: 'X', logo: 'https://example.com/logo.png' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('<img');
+    expect(result.contentHtml).toContain('https://example.com/logo.png');
+  });
+
+  it('falls back to initial-letter mark when no logo provided', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'logo-outro',
+      props: { title: 'Argo' },
+    }, 'dark');
+    expect(result.contentHtml).toContain('>A</div>');
+  });
+
+  it('ships a scale-in entrance motion', () => {
+    const block = getBlock('logo-outro');
+    const motion = block.defaultMotion as { type: string; in?: { from?: { scale?: number } } };
+    expect(motion.type).toBe('gsap');
+    expect(motion.in?.from?.scale).toBeLessThan(1);
+  });
+
+  it('escapes HTML in title and tagline', () => {
+    const result = renderTemplate({
+      type: 'block', block: 'logo-outro',
+      props: { title: '<b>T</b>', tagline: '<i>tag</i>' },
+    }, 'dark');
+    expect(result.contentHtml).not.toContain('<b>T</b>');
+    expect(result.contentHtml).not.toContain('<i>tag</i>');
+  });
+});

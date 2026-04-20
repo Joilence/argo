@@ -107,7 +107,11 @@ Curated overlay catalog. Each block is self-contained under `src/blocks/<name>/`
 
 Blocks plug into `renderTemplate()` via the `type: 'block'` cue variant. Props merge over block-level defaults at render time (`{ ...block.defaultProps, ...cue.props }`). HTML escaping uses the shared `src/html-escape.ts` utility — all blocks import from there.
 
-v1 blocks: `x-post`, `macos-notification`, `yt-lower-third`, `data-chart`, `spotify-card`. Folder format is designed for a future `argo add <block>` command (not shipped in v1).
+Static v1 blocks: `x-post`, `macos-notification`, `yt-lower-third`, `data-chart`, `spotify-card`.
+
+Animated blocks (ship with `defaultMotion` using GSAP): `instagram-follow` (pulsing Follow button), `tiktok-follow` (rotating avatar ring + side slide), `reddit-post` (upvote card, simple entrance), `logo-outro` (scale-in end-card). These use `BlockDefinition.defaultMotion` — a cue-level `motion` still overrides. Inspired by hyperframes blocks of the same names (Apache-2.0); implementations are original. Selector hooks used by the motion loops: `.argo-ig-follow-btn`, `.argo-tt-ring`.
+
+Folder format is designed for a future `argo add <block>` command (not shipped yet).
 
 ### Effects (`src/effects.ts`)
 

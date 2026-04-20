@@ -4,6 +4,10 @@ import { macosNotificationBlock } from './macos-notification/template.js';
 import { ytLowerThirdBlock } from './yt-lower-third/template.js';
 import { dataChartBlock } from './data-chart/template.js';
 import { spotifyCardBlock } from './spotify-card/template.js';
+import { instagramFollowBlock } from './instagram-follow/template.js';
+import { tiktokFollowBlock } from './tiktok-follow/template.js';
+import { redditPostBlock } from './reddit-post/template.js';
+import { logoOutroBlock } from './logo-outro/template.js';
 
 /**
  * Compile-time registry. Each block is a self-contained folder under
@@ -19,6 +23,10 @@ export const BLOCK_REGISTRY = {
   'yt-lower-third': ytLowerThirdBlock,
   'data-chart': dataChartBlock,
   'spotify-card': spotifyCardBlock,
+  'instagram-follow': instagramFollowBlock,
+  'tiktok-follow': tiktokFollowBlock,
+  'reddit-post': redditPostBlock,
+  'logo-outro': logoOutroBlock,
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as const satisfies Record<string, BlockDefinition<any>>;
 
