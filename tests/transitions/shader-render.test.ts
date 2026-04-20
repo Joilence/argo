@@ -9,6 +9,17 @@ const execFileP = promisify(execFile);
 import { SHADERS, isValidShaderName, SHADER_NAMES } from '../../src/transitions/shaders/index.js';
 import type { TransitionConfig } from '../../src/config.js';
 
+// ffmpeg probe — tests that invoke ffmpeg skip when it's not available on the
+// host (e.g., minimal dev environments, some CI runners). CI workflows that
+// should actually exercise these tests install ffmpeg explicitly.
+let hasFfmpeg = false;
+try {
+  await execFileP('ffmpeg', ['-version']);
+  hasFfmpeg = true;
+} catch {
+  hasFfmpeg = false;
+}
+
 describe('shader registry', () => {
   it('ships exactly the v1 five shaders', () => {
     expect(SHADER_NAMES).toEqual(['crosswarp', 'swirl', 'ripple', 'luma-mask', 'light-leak']);
@@ -86,7 +97,7 @@ describe('extractBoundaryFrame', () => {
   const sampleVideo = join(process.cwd(), 'tests/fixtures/sample-2s.mp4');
   const hasSample = existsSync(sampleVideo);
 
-  it.runIf(hasSample)('extracts a PNG at the given timestamp', async () => {
+  it.runIf(hasSample && hasFfmpeg)('extracts a PNG at the given timestamp', async () => {
     const { extractBoundaryFrame } = await import('../../src/transitions/shader-render.js');
     const tmp = mkdtempSync(join(tmpdir(), 'argo-frame-'));
     const out = join(tmp, 'frame.png');
@@ -96,7 +107,7 @@ describe('extractBoundaryFrame', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it.runIf(hasSample)('throws a clear error when ffmpeg fails', async () => {
+  it.runIf(hasSample && hasFfmpeg)('throws a clear error when ffmpeg fails', async () => {
     const { extractBoundaryFrame } = await import('../../src/transitions/shader-render.js');
     const tmp = mkdtempSync(join(tmpdir(), 'argo-frame-err-'));
     const out = join(tmp, 'frame.png');
@@ -110,7 +121,7 @@ describe('extractBoundaryFrame', () => {
 describe('renderShaderFrames', () => {
   const hasSample = existsSync(join(process.cwd(), 'tests/fixtures/sample-2s.mp4'));
 
-  it.runIf(hasSample)('renders N = duration_ms * fps / 1000 frames', async () => {
+  it.runIf(hasSample && hasFfmpeg)('renders N = duration_ms * fps / 1000 frames', async () => {
     const { renderShaderFrames } = await import('../../src/transitions/shader-render.js');
     const tmp = mkdtempSync(join(tmpdir(), 'argo-render-'));
     const aPng = join(tmp, 'a.png');
@@ -143,7 +154,7 @@ describe('renderShaderFrames', () => {
 describe('renderShaderTransitions', () => {
   const hasSample = existsSync(join(process.cwd(), 'tests/fixtures/sample-2s.mp4'));
 
-  it.runIf(hasSample)('renders each boundary and caches by content hash', async () => {
+  it.runIf(hasSample && hasFfmpeg)('renders each boundary and caches by content hash', async () => {
     const { renderShaderTransitions } = await import('../../src/transitions/shader-render.js');
     const tmp = mkdtempSync(join(tmpdir(), 'argo-orch-'));
     const cacheDir = join(tmp, 'shaders');

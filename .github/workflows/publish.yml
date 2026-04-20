@@ -20,6 +20,10 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
+      # ffmpeg is a runtime dependency for Argo's tests (boundary frame
+      # extraction, shader pre-render). Ubuntu runners don't ship it.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - run: npm install
 
       - run: npx playwright install --with-deps chromium
