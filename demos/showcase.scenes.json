@@ -9,7 +9,19 @@
       "title": "Demos as code.",
       "body": "Voiceover, overlays, camera effects, preview, and export — one pipeline.",
       "placement": "top-right",
-      "motion": "slide-in",
+      "motion": {
+        "type": "gsap",
+        "in": {
+          "from": { "y": -30, "opacity": 0, "scale": 0.92 },
+          "duration": 0.55,
+          "ease": "back.out"
+        },
+        "out": {
+          "to": { "opacity": 0, "y": -20 },
+          "duration": 0.35,
+          "ease": "power2.in"
+        }
+      },
       "autoBackground": true
     }
   },
@@ -89,13 +101,13 @@
   },
   {
     "scene": "studio",
-    "text": "The studio polish pack. Frame your recording with padding, rounded corners, and a drop shadow on any background. Drop in curated blocks for social posts, notifications, or metrics. Add motion blur to camera zooms, slow down a hero scene to half speed, and drop arrow annotations to guide the viewer's eye.",
+    "text": "The studio polish pack. Frame your recording on any background. Drop in blocks from the catalog for posts, notifications, metrics, flowcharts, and brand outros. Layer GreenSock-driven motion on headlines and blocks, add motion blur to camera zooms, slow down a hero scene to half speed, and drop arrow annotations to guide the viewer's eye.",
     "speed": 0.92,
     "overlay": {
       "type": "headline-card",
       "kicker": "STUDIO POLISH",
       "title": "The Screen Studio look, in config.",
-      "body": "Frame, blocks, motion blur, per-scene speed, arrows — zero post-production.",
+      "body": "Frame, block catalog, GSAP motion, motion blur, per-scene speed, arrows.",
       "placement": "top-right",
       "motion": "slide-in",
       "autoBackground": true
@@ -144,10 +156,14 @@
     "voice": "am_michael",
     "speed": 0.92,
     "overlay": {
-      "type": "lower-third",
-      "text": "Recorded by Argo. Directed by code.",
-      "placement": "top-left",
-      "motion": "fade-in",
+      "type": "block",
+      "block": "logo-outro",
+      "props": {
+        "title": "Argo",
+        "tagline": "Directed by code. Shipped by one command.",
+        "accentColor": "#60a5fa"
+      },
+      "placement": "center",
       "autoBackground": true
     },
     "post": [
