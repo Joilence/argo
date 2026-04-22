@@ -213,12 +213,17 @@ export function demosProject(options: {
   const scale = normalizeDeviceScaleFactor(options.deviceScaleFactor);
   const width = options.video?.width ?? 1920;
   const height = options.video?.height ?? 1080;
+  const browser = options.browser ?? 'chromium';
+  // Chromium-only quality flags (see src/record.ts for rationale).
+  const chromiumLaunchOptions = browser === 'chromium'
+    ? { launchOptions: { args: ['--font-render-hinting=none', '--force-color-profile=srgb'] as string[] } }
+    : {};
   return {
     name: 'demos',
     testDir: options.demosDir ?? 'demos',
     testMatch: '**/*.demo.ts',
     use: {
-      browserName: options.browser ?? 'chromium',
+      browserName: browser,
       baseURL: options.baseURL,
       viewport: { width, height },
       deviceScaleFactor: scale,
@@ -226,6 +231,7 @@ export function demosProject(options: {
         mode: 'on' as const,
         size: { width: width * scale, height: height * scale },
       },
+      ...chromiumLaunchOptions,
     },
   };
 }

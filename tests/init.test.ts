@@ -63,9 +63,12 @@ describe('init', () => {
 
     expect(content).toContain("import config from './argo.config.mjs'");
     expect(content).toContain('Math.max(1, Math.round(config.video?.deviceScaleFactor ?? 1))');
-    expect(content).toContain("browserName: config.video?.browser ?? 'chromium'");
+    expect(content).toContain("const browser = config.video?.browser ?? 'chromium'");
+    expect(content).toContain('browserName: browser');
     expect(content).toContain('deviceScaleFactor: scale');
     expect(content).toContain('size: { width: width * scale, height: height * scale }');
+    expect(content).toContain("'--font-render-hinting=none'");
+    expect(content).toContain("'--force-color-profile=srgb'");
   });
 
   it('does NOT overwrite existing files', async () => {

@@ -107,6 +107,13 @@ import config from './argo.config.mjs';
 const scale = Math.max(1, Math.round(config.video?.deviceScaleFactor ?? 1));
 const width = config.video?.width ?? 1920;
 const height = config.video?.height ?? 1080;
+const browser = config.video?.browser ?? 'chromium';
+
+// Chromium-only quality flags: disables platform-specific text hinting and
+// pins output color profile to sRGB for consistent video rendering.
+const chromiumLaunchOptions = browser === 'chromium'
+  ? { launchOptions: { args: ['--font-render-hinting=none', '--force-color-profile=srgb'] } }
+  : {};
 
 export default defineConfig({
   preserveOutput: 'always',
@@ -116,7 +123,7 @@ export default defineConfig({
       testDir: 'demos',
       testMatch: '**/*.demo.ts',
       use: {
-        browserName: config.video?.browser ?? 'chromium',
+        browserName: browser,
         baseURL: process.env.BASE_URL || config.baseURL || 'http://localhost:3000',
         viewport: { width, height },
         deviceScaleFactor: scale,
@@ -124,6 +131,7 @@ export default defineConfig({
           mode: 'on',
           size: { width: width * scale, height: height * scale },
         },
+        ...chromiumLaunchOptions,
       },
     },
   ],
