@@ -117,13 +117,40 @@ test('showcase', async ({ page, narration }) => {
   await page.waitForTimeout(400);
   await withOverlay(page, 'studio', async () => {
     const totalMs = narration.durationFor('studio', { maxMs: 10000 }) - 400;
-    const beat = Math.floor(totalMs / 4);
+    // Flash 3 animated blocks in the bottom-left zone so the GSAP loops
+    // (rotating ring, pulsing button, floating hero) are visible on screen.
+    // Each block holds long enough to see at least one full loop cycle.
+    const blockBeat = 2800;
+    const beat = Math.max(1500, Math.floor((totalMs - blockBeat * 3) / 4));
+
+    await showOverlay(page, 'studio', {
+      type: 'block',
+      block: 'tiktok-follow',
+      props: { handle: '@argo', name: 'Argo' },
+      placement: 'bottom-left',
+      autoBackground: true,
+    }, blockBeat);
+
+    await showOverlay(page, 'studio', {
+      type: 'block',
+      block: 'instagram-follow',
+      props: { handle: '@argo', name: 'Argo', verified: true },
+      placement: 'bottom-left',
+      autoBackground: true,
+    }, blockBeat);
+
+    await showOverlay(page, 'studio', {
+      type: 'block',
+      block: 'app-showcase',
+      props: { title: 'Argo', subtitle: 'Demos as code.', cta: 'Get started', accentColor: '#60a5fa' },
+      placement: 'bottom-left',
+      autoBackground: true,
+    }, blockBeat);
+
     await focusRing(page, '#polish-frame', { color: '#60a5fa', duration: beat, wait: true });
     await focusRing(page, '#polish-motion-blur', { color: '#e879f9', duration: beat, wait: true });
     await focusRing(page, '#polish-scene-speed', { color: '#22d3ee', duration: beat, wait: true });
     // Arrow annotation card — place a visible arrow near the lower-right card.
-    // Overlay placement is zone-based, so use the bottom-right zone and point
-    // back up-left toward the card instead of the viewport's top-right corner.
     showOverlay(page, 'studio-arrow', {
       type: 'arrow',
       direction: 'up-left',
