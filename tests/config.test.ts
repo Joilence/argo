@@ -97,9 +97,6 @@ describe('demosProject', () => {
           mode: 'on',
           size: { width: 1920, height: 1080 },
         },
-        launchOptions: {
-          args: ['--font-render-hinting=none', '--force-color-profile=srgb'],
-        },
       },
     });
   });

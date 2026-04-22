@@ -59,16 +59,6 @@ function createPlaywrightConfig(demoName: string, options: RecordOptions, output
       extraUseFields.push(`        ${key}: ${JSON.stringify(value)},`);
     }
   }
-  // Chromium-only quality flags — borrowed from HyperFrames' render engine.
-  // `--font-render-hinting=none` drops platform-specific subpixel hinting so
-  // text rasterization matches across macOS/Linux. `--force-color-profile=srgb`
-  // pins the output color profile so exported video doesn't shift hue on
-  // wide-gamut displays. Both are no-ops / rejected on firefox + webkit.
-  if (browser === 'chromium') {
-    extraUseFields.push(`        launchOptions: {`);
-    extraUseFields.push(`          args: ['--font-render-hinting=none', '--force-color-profile=srgb'],`);
-    extraUseFields.push(`        },`);
-  }
   const extraUse = extraUseFields.length > 0 ? '\n' + extraUseFields.join('\n') : '';
 
   return `import { defineConfig } from '@playwright/test';
