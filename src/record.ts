@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdirSync, readdirSync, copyFileSync, existsSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, existsSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { startAssetServer, type AssetServer } from './asset-server.js';
 import { loadOverlayManifest, hasImageAssets } from './overlays/manifest.js';
@@ -27,28 +27,11 @@ export interface RecordResult {
   timingPath: string;
 }
 
-function findFileInResults(testResultsDir: string, extension: string): string | undefined {
-  if (!existsSync(testResultsDir)) return undefined;
-  for (const entry of readdirSync(testResultsDir, { recursive: true })) {
-    const name = typeof entry === 'string' ? entry : entry.toString();
-    if (name.endsWith(extension)) {
-      return path.join(testResultsDir, name);
-    }
-  }
-  return undefined;
-}
-
 function createPlaywrightConfig(demoName: string, options: RecordOptions, outputDir: string): string {
   const demosDir = path.resolve(options.demosDir);
   const { width, height } = options.video;
   const browser = options.browser ?? 'chromium';
   const deviceScaleFactor = normalizeDeviceScaleFactor(options.deviceScaleFactor);
-
-  // When using a non-default scale factor, record at the scaled resolution
-  // so Playwright captures every physical pixel. The export step will
-  // downscale back to the logical resolution with a high-quality filter.
-  const captureWidth = width * deviceScaleFactor;
-  const captureHeight = height * deviceScaleFactor;
 
   // Build optional context options (isMobile, hasTouch, colorScheme, etc.)
   const extraUseFields: string[] = [];
@@ -61,6 +44,8 @@ function createPlaywrightConfig(demoName: string, options: RecordOptions, output
   }
   const extraUse = extraUseFields.length > 0 ? '\n' + extraUseFields.join('\n') : '';
 
+  // Recording is driven by `narration.startRecording(page)` which calls
+  // page.screencast.start() at the first scene — no Playwright recordVideo here.
   return `import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -77,11 +62,8 @@ export default defineConfig({
         baseURL: ${JSON.stringify(options.baseURL)},
         viewport: { width: ${width}, height: ${height} },
         deviceScaleFactor: ${deviceScaleFactor},${extraUse}
-        video: {
-          mode: 'on',
-          size: { width: ${captureWidth}, height: ${captureHeight} },
-        },
-        trace: 'on',
+        video: 'off',
+        trace: 'off',
       },
     },
   ],
@@ -148,6 +130,9 @@ export async function record(demoName: string, options: RecordOptions): Promise<
           ARGO_DEMO_NAME: demoName,
           ARGO_OUTPUT_DIR: path.resolve(argoDir),
           ARGO_PROGRESS_PATH: progressPath,
+          ARGO_SCREENCAST_PATH: path.resolve(videoPath),
+          ARGO_SCREENCAST_WIDTH: String(options.video.width * normalizeDeviceScaleFactor(options.deviceScaleFactor)),
+          ARGO_SCREENCAST_HEIGHT: String(options.video.height * normalizeDeviceScaleFactor(options.deviceScaleFactor)),
           BASE_URL: options.baseURL,
           ARGO_ASSET_URL: assetServer?.url ?? '',
           ARGO_AUTO_BACKGROUND: options.autoBackground ? '1' : '',
@@ -169,22 +154,14 @@ export async function record(demoName: string, options: RecordOptions): Promise<
           return;
         }
 
-        // Copy the video from test-results/ to .argo/<demo>/video.webm
-        const found = findFileInResults(testResultsDir, '.webm');
-        if (!found) {
+        // narration.startRecording() wrote the screencast directly to videoPath.
+        // If it's missing, the demo never called startRecording() — fail loudly.
+        if (!existsSync(videoPath)) {
           reject(new Error(
-            `No video recording found in test-results/. ` +
-            `Ensure playwright.config.ts has video: 'on' or video: { mode: 'on' }.`
+            `No screencast recording found at ${videoPath}. ` +
+            `Ensure the demo calls 'await narration.startRecording(page)' before the first 'narration.mark()'.`
           ));
           return;
-        }
-        copyFileSync(found, videoPath);
-
-        // Copy trace if captured
-        const traceFile = findFileInResults(testResultsDir, '.zip');
-        if (traceFile) {
-          const traceDest = path.join(argoDir, 'trace.zip');
-          copyFileSync(traceFile, traceDest);
         }
 
         // Verify timing file was written by the narration fixture

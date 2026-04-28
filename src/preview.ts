@@ -1299,18 +1299,6 @@ self.onmessage = async (e) => {
         return;
       }
 
-      // Serve trace.zip (for Playwright trace viewer link)
-      if (url === '/trace.zip') {
-        const tracePath = join(demoDir, 'trace.zip');
-        if (existsSync(tracePath)) {
-          serveFile(res, tracePath);
-        } else {
-          res.writeHead(404);
-          res.end('No trace captured');
-        }
-        return;
-      }
-
       // Root — serve the preview HTML
       if (url === '/' || url === '/index.html') {
         const data = loadPreviewData(demoName, argoDir, demosDir, outputDir, options.exportConfig, activeMusicPath);
@@ -2442,7 +2430,6 @@ const PREVIEW_HTML = `<!DOCTYPE html>
 <header>
   <h1>Argo Preview — <span class="demo-name" id="demo-name"></span></h1>
   <div class="actions">
-    <a class="trace-link" id="trace-link" href="https://trace.playwright.dev" target="_blank">Open Trace Viewer</a>
     <button class="btn btn-save" id="btn-save" title="Save all changes">Save</button>
     <button class="btn btn-rerecord" id="btn-export" title="Re-export video with current audio (no re-recording)">Export</button>
     <button class="btn btn-rerecord" id="btn-rerecord" title="Re-record with current manifest">Re-record</button>
