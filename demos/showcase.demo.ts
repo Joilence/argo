@@ -22,6 +22,11 @@ test('showcase', async ({ page, narration }) => {
   cursorHighlight(page, { color: '#60a5fa', radius: 18 });
   await page.waitForTimeout(700);
 
+  // Begin screen capture — Playwright 1.59 page.screencast.start().
+  // Re-anchors narration timestamps so the first mark lands at t=0
+  // and no head-trim heuristic is needed in the export pipeline.
+  await narration.startRecording(page);
+
   narration.mark('hero');
   spotlight(page, '#hero-command', { duration: 4800, padding: 18 });
   await showOverlay(page, 'hero', narration.durationFor('hero', { maxMs: 7800 }));

@@ -31,19 +31,24 @@ describe('record', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it('generates a Playwright config from record options and copies artifacts', async () => {
-    execFileMock.mockImplementation((_cmd, args, options, callback) => {
-      const testResultsDir = resolve(tempDir, 'test-results');
+  // Common mock: simulate the in-process narration fixture writing the
+  // screencast directly to ARGO_SCREENCAST_PATH and the timing JSON.
+  function mockSubprocessSuccess() {
+    execFileMock.mockImplementation((_cmd, _args, options, callback) => {
       const argoOutputDir = options.env.ARGO_OUTPUT_DIR as string;
+      const screencastPath = options.env.ARGO_SCREENCAST_PATH as string;
 
-      mkdirSync(join(testResultsDir, 'demo-run'), { recursive: true });
-      writeFileSync(join(testResultsDir, 'demo-run', 'video.webm'), 'video');
       mkdirSync(resolve(tempDir, argoOutputDir), { recursive: true });
+      writeFileSync(screencastPath, 'video');
       writeFileSync(resolve(tempDir, argoOutputDir, '.timing.json'), '{}');
 
       callback(null, '', '');
       return {} as never;
     });
+  }
+
+  it('generates a Playwright config from record options and lands the screencast at the known path', async () => {
+    mockSubprocessSuccess();
 
     const result = await record('demo', {
       demosDir: 'custom-demos',
@@ -57,7 +62,8 @@ describe('record', () => {
     expect(config).toContain(`testDir: ${JSON.stringify(resolve('custom-demos'))}`);
     expect(config).toContain(`baseURL: ${JSON.stringify('http://localhost:4321')}`);
     expect(config).toContain('viewport: { width: 1280, height: 720 }');
-    expect(config).toContain('size: { width: 1280, height: 720 }');
+    // Recording is driven by page.screencast.start() in the fixture, not Playwright recordVideo.
+    expect(config).toContain("video: 'off'");
     expect(existsSync(join(tempDir, '.argo', 'demo', 'video.webm'))).toBe(true);
     expect(result).toEqual({
       videoPath: join('.argo', 'demo', 'video.webm'),
@@ -78,6 +84,9 @@ describe('record', () => {
       expect.objectContaining({
         env: expect.objectContaining({
           ARGO_OUTPUT_DIR: resolve(join('.argo', 'demo')),
+          ARGO_SCREENCAST_PATH: resolve(join('.argo', 'demo', 'video.webm')),
+          ARGO_SCREENCAST_WIDTH: '1280',
+          ARGO_SCREENCAST_HEIGHT: '720',
           BASE_URL: 'http://localhost:4321',
         }),
       }),
@@ -85,19 +94,8 @@ describe('record', () => {
     );
   });
 
-  it('normalizes deviceScaleFactor in generated Playwright config', async () => {
-    execFileMock.mockImplementation((_cmd, _args, options, callback) => {
-      const testResultsDir = resolve(tempDir, 'test-results');
-      const argoOutputDir = options.env.ARGO_OUTPUT_DIR as string;
-
-      mkdirSync(join(testResultsDir, 'demo-run'), { recursive: true });
-      writeFileSync(join(testResultsDir, 'demo-run', 'video.webm'), 'video');
-      mkdirSync(resolve(tempDir, argoOutputDir), { recursive: true });
-      writeFileSync(resolve(tempDir, argoOutputDir, '.timing.json'), '{}');
-
-      callback(null, '', '');
-      return {} as never;
-    });
+  it('normalizes deviceScaleFactor and scales the screencast size env accordingly', async () => {
+    mockSubprocessSuccess();
 
     await record('demo', {
       demosDir: 'custom-demos',
@@ -112,22 +110,21 @@ describe('record', () => {
 
     expect(config).toContain("browserName: \"webkit\"");
     expect(config).toContain('deviceScaleFactor: 2');
-    expect(config).toContain('size: { width: 2560, height: 1440 }');
+    expect(execFileMock).toHaveBeenCalledWith(
+      'npx',
+      expect.any(Array),
+      expect.objectContaining({
+        env: expect.objectContaining({
+          ARGO_SCREENCAST_WIDTH: '2560',
+          ARGO_SCREENCAST_HEIGHT: '1440',
+        }),
+      }),
+      expect.any(Function),
+    );
   });
 
   it('includes isMobile, hasTouch, and contextOptions in generated config', async () => {
-    execFileMock.mockImplementation((_cmd, _args, options, callback) => {
-      const testResultsDir = resolve(tempDir, 'test-results');
-      const argoOutputDir = options.env.ARGO_OUTPUT_DIR as string;
-
-      mkdirSync(join(testResultsDir, 'demo-run'), { recursive: true });
-      writeFileSync(join(testResultsDir, 'demo-run', 'video.webm'), 'video');
-      mkdirSync(resolve(tempDir, argoOutputDir), { recursive: true });
-      writeFileSync(resolve(tempDir, argoOutputDir, '.timing.json'), '{}');
-
-      callback(null, '', '');
-      return {} as never;
-    });
+    mockSubprocessSuccess();
 
     await record('demo', {
       demosDir: 'custom-demos',

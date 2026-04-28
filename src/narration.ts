@@ -4,6 +4,29 @@ import { dirname } from 'node:path';
 import { schedulePlacements, type Placement } from './tts/align.js';
 import type { CameraMove } from './camera-move.js';
 
+/**
+ * Subset of Playwright's Page we depend on — typed structurally so we don't
+ * pull `@playwright/test` types into the runtime module.
+ */
+interface ScreencastPage {
+  screencast: {
+    start(options?: {
+      path?: string;
+      size?: { width: number; height: number };
+      quality?: number;
+      annotate?: { duration?: number; position?: string; fontSize?: number };
+    }): Promise<unknown>;
+    stop(): Promise<void>;
+  };
+}
+
+export interface StartRecordingOptions {
+  /** Override the recording size (defaults to the screencast page viewport). */
+  size?: { width: number; height: number };
+  /** JPEG quality for the optional onFrame stream — passed straight through. */
+  quality?: number;
+}
+
 export interface SceneDurationOptions {
   leadInMs?: number;
   leadOutMs?: number;
@@ -30,6 +53,7 @@ export class NarrationTimeline {
   private _cameraMoves: CameraMove[] = [];
   private _cursorTelemetry: CursorSample[] = [];
   private _fallbackWarned = false;
+  private _screencastStop: (() => Promise<void>) | null = null;
 
   constructor(sceneDurations?: Record<string, number>) {
     if (sceneDurations) {
@@ -41,6 +65,61 @@ export class NarrationTimeline {
     this.startTime = Date.now();
     this.timings = new Map();
     this.cachedPlacements = null;
+  }
+
+  /**
+   * Begin screen recording via Playwright 1.59+ `page.screencast.start()`.
+   * Call this once setup (login, navigation, theme prep) is done and the
+   * "real" demo is about to begin. Re-anchors the timeline clock so the
+   * next `mark()` lands at ~0ms — no head-trim heuristic needed downstream.
+   *
+   * No-op when ARGO_SCREENCAST_PATH is unset (e.g., running standalone in
+   * VS Code without the argo pipeline). The fixture wires the env var.
+   */
+  async startRecording(page: ScreencastPage, options: StartRecordingOptions = {}): Promise<void> {
+    const path = process.env.ARGO_SCREENCAST_PATH;
+    if (!path) {
+      // Standalone Playwright run — no recording. Demos still work.
+      return;
+    }
+    if (this._screencastStop) {
+      throw new Error('startRecording() already called for this timeline');
+    }
+
+    // Pin recording size from env (set by the argo pipeline) when the caller
+    // didn't specify — otherwise Playwright's default isn't guaranteed to match
+    // the configured viewport (webkit picks 800x450). Caller-passed size wins.
+    let size = options.size;
+    if (!size) {
+      const w = Number(process.env.ARGO_SCREENCAST_WIDTH);
+      const h = Number(process.env.ARGO_SCREENCAST_HEIGHT);
+      if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+        size = { width: w, height: h };
+      }
+    }
+
+    await page.screencast.start({ path, size, quality: options.quality });
+    this._screencastStop = () => page.screencast.stop();
+    // Re-anchor the timeline so timestamps align with the video, not the test start.
+    this.startTime = Date.now();
+    this.timings = new Map();
+    this.cachedPlacements = null;
+  }
+
+  /**
+   * Stop the active screencast, if any. Called by the test fixture in its
+   * finally block. Swallows errors after warning — recording stop is
+   * best-effort, the file is already on disk by the time we get here.
+   */
+  async _closeRecording(): Promise<void> {
+    const stop = this._screencastStop;
+    if (!stop) return;
+    this._screencastStop = null;
+    try {
+      await stop();
+    } catch (err) {
+      console.warn(`Warning: failed to stop screencast: ${(err as Error).message}`);
+    }
   }
 
   mark(scene: string): void {

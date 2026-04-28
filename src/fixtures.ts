@@ -84,6 +84,10 @@ export const test = base.extend<{ narration: NarrationTimeline }>({
     try {
       await use(timeline);
     } finally {
+      // Stop the screencast (if any) before flushing — the page is still
+      // alive at this point because Playwright tears down fixtures bottom-up.
+      await timeline._closeRecording();
+
       // Restore original env to avoid leaking across tests in the same worker
       if (autoDiscovered) {
         delete process.env.ARGO_OVERLAYS_PATH;
