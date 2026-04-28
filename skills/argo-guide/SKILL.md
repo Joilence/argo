@@ -65,6 +65,7 @@ import { showOverlay, withOverlay } from '@argo-video/cli';
 
 | API | What it does |
 |-----|-------------|
+| `await narration.startRecording(page)` | Begin screen capture (`page.screencast.start`). Call once after setup, before the first `mark()`. Re-anchors the timeline so the first mark is at t=0. |
 | `narration.mark(scene)` | Record timestamp. Every scene in the manifest needs a matching mark. |
 | `narration.durationFor(scene, opts?)` | Compute hold duration from TTS clip length (remaining time from now). Use instead of hardcoded `waitForTimeout(ms)`. |
 | `narration.sceneDuration(scene, opts?)` | Full scene duration — stable, non-decreasing. Use for overlay display durations. |
@@ -107,18 +108,17 @@ The zoom is applied during export via ffmpeg `zoompan` (not `crop` — crop w/h 
 
 ### Mobile Demos
 
-For mobile viewport recording, set `isMobile`, `hasTouch`, and `video.size` in the demo script via `test.use()`:
+For mobile viewport recording, set `isMobile` and `hasTouch` in the demo script via `test.use()`:
 
 ```typescript
 test.use({
   viewport: { width: 390, height: 664 },
   isMobile: true,
   hasTouch: true,
-  video: { mode: 'on' as const, size: { width: 390, height: 664 } },
 });
 ```
 
-The `video.size` override is essential — without it, the capture canvas defaults to 1920x1080 and the mobile viewport renders in the top-left with gray padding. Use `.tap()` instead of `.click()` for touch interactions.
+The recording size is derived from `video.width` × `video.height` in `argo.config.mjs` and passed to `page.screencast.start()` automatically. Use `.tap()` instead of `.click()` for touch interactions.
 
 These options can also be set in `argo.config.mjs` under `video` for all demos:
 ```javascript
@@ -135,9 +135,9 @@ test.setTimeout(scenes.length * 15_000); // ~15s per scene as a rule of thumb
 
 Or just use a large fixed value: `test.setTimeout(300_000)` for up to 5 minutes.
 
-### Auto-Trim (Off-Camera Setup)
+### Off-Camera Setup
 
-The pipeline trims video to start ~200ms before the first `narration.mark()`. Everything before (login, feature flags, data seeding) and after the last scene is cut from the final MP4. This means setup code never appears in the video — no need for separate test fixtures.
+Call `await narration.startRecording(page)` once setup (login, feature flags, data seeding) is done and before the first `narration.mark()`. This starts `page.screencast.start()` and re-anchors the timeline so the first mark lands at t=0. Anything you do before `startRecording()` is excluded from the recording — no auto-trim heuristic needed.
 
 ### Dynamic Durations
 
@@ -401,6 +401,7 @@ For demos without a live app (slideshows, product screenshots):
 ```typescript
 await page.goto('about:blank');
 await page.setContent('<div style="...">Your content here</div>');
+await narration.startRecording(page);
 narration.mark('intro');
 ```
 

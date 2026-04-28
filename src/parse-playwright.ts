@@ -266,8 +266,13 @@ export function generateDemoScript(parsed: ParsedPlaywrightTest): string {
   lines.push('');
   lines.push(`test('${parsed.testName}', async ({ page, narration }) => {`);
 
+  let recordingStarted = false;
   for (const scene of parsed.scenes) {
     lines.push('');
+    if (!recordingStarted) {
+      lines.push(`  await narration.startRecording(page);`);
+      recordingStarted = true;
+    }
     lines.push(`  narration.mark('${scene.name}');`);
     for (const sourceLine of scene.lines) {
       // Strip test.step() wrappers — we flatten steps into narration.mark() scenes

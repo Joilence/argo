@@ -5,7 +5,8 @@
  * - Import `test` from '@argo-video/cli', NOT '@playwright/test'
  * - Every scene in the .scenes.json manifest needs a matching narration.mark()
  * - Use durationFor() instead of hardcoded waitForTimeout values
- * - Code before the first mark() is auto-trimmed from the final video
+ * - Call `await narration.startRecording(page)` once setup is done — code
+ *   before this call is excluded from the final video
  */
 import { test } from '@argo-video/cli';
 import {
@@ -24,12 +25,15 @@ test('my-demo', async ({ page, narration }) => {
   // Extend timeout for demos longer than 30s
   test.setTimeout(90_000);
 
-  // --- OFF-CAMERA SETUP (auto-trimmed from final video) ---
+  // --- OFF-CAMERA SETUP (excluded from final video) ---
   await page.goto('/');
   await page.waitForLoadState('networkidle');
 
   // Optional: enable cursor highlight for the whole recording
   cursorHighlight(page, { color: '#3b82f6', radius: 20 });
+
+  // Begin screen capture. The first narration.mark() below lands at t=0.
+  await narration.startRecording(page);
 
   // --- ON-CAMERA: Scene 1 — Intro ---
   narration.mark('intro');

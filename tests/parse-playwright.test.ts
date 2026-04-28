@@ -143,9 +143,17 @@ describe('generateDemoScript', () => {
     // SIMPLE_TEST has expect() calls, so the import includes expect
     expect(script).toContain("import { test, expect } from '@argo-video/cli'");
     expect(script).toContain("import { showOverlay, withOverlay } from '@argo-video/cli'");
+    expect(script).toContain('await narration.startRecording(page)');
     expect(script).toContain("narration.mark('login')");
     expect(script).toContain("narration.durationFor('login')");
     expect(script).toContain('async ({ page, narration })');
+
+    // startRecording must come exactly once, before the first mark
+    const recordIdx = script.indexOf('startRecording(page)');
+    const firstMarkIdx = script.indexOf('narration.mark(');
+    expect(recordIdx).toBeGreaterThan(-1);
+    expect(recordIdx).toBeLessThan(firstMarkIdx);
+    expect(script.match(/startRecording\(page\)/g)).toHaveLength(1);
   });
 
   it('includes mark + durationFor for each scene', () => {

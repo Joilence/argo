@@ -27,6 +27,7 @@ describe('init', () => {
     const content = await readFile(join(dir, 'demos', 'example.demo.ts'), 'utf-8');
     expect(content).toContain("import { test } from '@argo-video/cli'");
     expect(content).toContain("import { showOverlay, withOverlay } from '@argo-video/cli'");
+    expect(content).toContain('await narration.startRecording(page)');
     expect(content).toContain("narration.mark('welcome')");
     expect(content).toContain('showOverlay(page,');
     expect(content).toContain('withOverlay(page,');
@@ -65,7 +66,10 @@ describe('init', () => {
     expect(content).toContain('Math.max(1, Math.round(config.video?.deviceScaleFactor ?? 1))');
     expect(content).toContain("browserName: config.video?.browser ?? 'chromium'");
     expect(content).toContain('deviceScaleFactor: scale');
-    expect(content).toContain('size: { width: width * scale, height: height * scale }');
+    // Recording is driven by narration.startRecording (page.screencast.start);
+    // recordVideo is disabled in the scaffold.
+    expect(content).toContain("video: 'off'");
+    expect(content).not.toContain("mode: 'on'");
   });
 
   it('does NOT overwrite existing files', async () => {

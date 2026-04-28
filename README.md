@@ -76,6 +76,10 @@ import { showOverlay, withOverlay } from '@argo-video/cli';
 test('my-feature', async ({ page, narration }) => {
   await page.goto('/');
 
+  // Begin screen capture once setup (login, theme, navigation) is done.
+  // The first narration.mark() below lands at t=0 in the recording.
+  await narration.startRecording(page);
+
   narration.mark('intro');
   await showOverlay(page, 'intro', narration.durationFor('intro'));
 
@@ -157,7 +161,6 @@ test.use({
   viewport: { width: 390, height: 664 },
   isMobile: true,
   hasTouch: true,
-  video: { mode: 'on' as const, size: { width: 390, height: 664 } },
 });
 ```
 
@@ -173,7 +176,7 @@ video: {
 },
 ```
 
-> **Important:** Set `video.size` to match the viewport in `test.use()`, otherwise the capture canvas defaults to 1920×1080 and the mobile viewport renders with gray padding. Use `.tap()` instead of `.click()` for touch interactions.
+> **Important:** The recording size is derived from `video.width` × `video.height` and passed to `page.screencast.start()` automatically. Use `.tap()` instead of `.click()` for touch interactions.
 
 See `demos/mobile.demo.ts` for a complete mobile demo example.
 
@@ -189,6 +192,9 @@ const scale = Math.max(1, Math.round(config.video?.deviceScaleFactor ?? 1));
 const width = config.video?.width ?? 1920;
 const height = config.video?.height ?? 1080;
 
+// Recording is driven by narration.startRecording(page) inside the demo
+// (page.screencast.start under the hood). Keep video: 'off' so Playwright's
+// auto recordVideo doesn't fight the screencast.
 export default defineConfig({
   preserveOutput: 'always',
   projects: [{
@@ -200,7 +206,7 @@ export default defineConfig({
       baseURL: process.env.BASE_URL || config.baseURL || 'http://localhost:3000',
       viewport: { width, height },
       deviceScaleFactor: scale,
-      video: { mode: 'on', size: { width: width * scale, height: height * scale } },
+      video: 'off',
     },
   }],
 });

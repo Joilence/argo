@@ -27,6 +27,10 @@ import { showOverlay, withOverlay } from '@argo-video/cli';
 test('example', async ({ page, narration }) => {
   await page.goto('/');
 
+  // Begin screen capture once setup is done. The first narration.mark()
+  // below lands at t=0 in the recording — no head-trim needed.
+  await narration.startRecording(page);
+
   narration.mark('welcome');
   await showOverlay(page, 'welcome', narration.durationFor('welcome'));
 
@@ -108,6 +112,8 @@ const scale = Math.max(1, Math.round(config.video?.deviceScaleFactor ?? 1));
 const width = config.video?.width ?? 1920;
 const height = config.video?.height ?? 1080;
 
+// Recording is driven by narration.startRecording(page) in the demo
+// (page.screencast.start under the hood) — no Playwright recordVideo here.
 export default defineConfig({
   preserveOutput: 'always',
   projects: [
@@ -120,10 +126,7 @@ export default defineConfig({
         baseURL: process.env.BASE_URL || config.baseURL || 'http://localhost:3000',
         viewport: { width, height },
         deviceScaleFactor: scale,
-        video: {
-          mode: 'on',
-          size: { width: width * scale, height: height * scale },
-        },
+        video: 'off',
       },
     },
   ],
