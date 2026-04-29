@@ -87,11 +87,100 @@ describe('record', () => {
           ARGO_SCREENCAST_PATH: resolve(join('.argo', 'demo', 'video.webm')),
           ARGO_SCREENCAST_WIDTH: '1280',
           ARGO_SCREENCAST_HEIGHT: '720',
+          // showActions defaults off, sceneThumbs defaults on
+          ARGO_SHOW_ACTIONS: '',
+          ARGO_SCENE_THUMBS: '1',
+          ARGO_THUMBS_DIR: resolve(join('.argo', 'demo', 'thumbs')),
+          ARGO_LIVE_FRAME_PATH: resolve(join('.argo', 'demo', '.live-frame.jpg')),
           BASE_URL: 'http://localhost:4321',
         }),
       }),
       expect.any(Function),
     );
+    // The thumbs/ dir should be created by record() so the runtime can write into it.
+    expect(existsSync(join(tempDir, '.argo', 'demo', 'thumbs'))).toBe(true);
+  });
+
+  it('serializes showActions config to ARGO_SHOW_ACTIONS env', async () => {
+    mockSubprocessSuccess();
+
+    await record('demo', {
+      demosDir: 'custom-demos',
+      baseURL: 'http://localhost:4321',
+      video: { width: 1280, height: 720 },
+      showActions: { position: 'bottom-left', fontSize: 18 },
+    });
+
+    expect(execFileMock).toHaveBeenCalledWith(
+      'npx',
+      expect.any(Array),
+      expect.objectContaining({
+        env: expect.objectContaining({
+          ARGO_SHOW_ACTIONS: JSON.stringify({ position: 'bottom-left', fontSize: 18 }),
+        }),
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it('passes showActions: true as empty-object JSON', async () => {
+    mockSubprocessSuccess();
+    await record('demo', {
+      demosDir: 'custom-demos',
+      baseURL: 'http://localhost:4321',
+      video: { width: 1280, height: 720 },
+      showActions: true,
+    });
+    expect(execFileMock).toHaveBeenCalledWith(
+      'npx',
+      expect.any(Array),
+      expect.objectContaining({ env: expect.objectContaining({ ARGO_SHOW_ACTIONS: '{}' }) }),
+      expect.any(Function),
+    );
+  });
+
+  it('honors sceneThumbnails: false to opt out of per-scene thumbs', async () => {
+    mockSubprocessSuccess();
+    await record('demo', {
+      demosDir: 'custom-demos',
+      baseURL: 'http://localhost:4321',
+      video: { width: 1280, height: 720 },
+      sceneThumbnails: false,
+    });
+    expect(execFileMock).toHaveBeenCalledWith(
+      'npx',
+      expect.any(Array),
+      expect.objectContaining({ env: expect.objectContaining({ ARGO_SCENE_THUMBS: '0' }) }),
+      expect.any(Function),
+    );
+  });
+
+  it('drops a stale .live-frame.jpg from a prior run before recording', async () => {
+    // Pre-seed a stale live frame
+    const argoDir = join(tempDir, '.argo', 'demo');
+    mkdirSync(argoDir, { recursive: true });
+    const stalePath = join(argoDir, '.live-frame.jpg');
+    writeFileSync(stalePath, 'stale-bytes');
+    expect(existsSync(stalePath)).toBe(true);
+
+    // Mock that doesn't write a new live frame — simulating a recording where
+    // onFrame never fired (browser failed early). Stale frame must be gone.
+    execFileMock.mockImplementation((_cmd, _args, options, callback) => {
+      const argoOutputDir = options.env.ARGO_OUTPUT_DIR as string;
+      mkdirSync(resolve(tempDir, argoOutputDir), { recursive: true });
+      writeFileSync(options.env.ARGO_SCREENCAST_PATH, 'video');
+      writeFileSync(resolve(tempDir, argoOutputDir, '.timing.json'), '{}');
+      callback(null, '', '');
+      return {} as never;
+    });
+
+    await record('demo', {
+      demosDir: 'custom-demos',
+      baseURL: 'http://localhost:4321',
+      video: { width: 1280, height: 720 },
+    });
+
+    expect(existsSync(stalePath)).toBe(false);
   });
 
   it('normalizes deviceScaleFactor and scales the screencast size env accordingly', async () => {

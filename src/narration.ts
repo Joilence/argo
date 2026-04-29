@@ -1,6 +1,6 @@
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { schedulePlacements, type Placement } from './tts/align.js';
 import type { CameraMove } from './camera-move.js';
 
@@ -14,9 +14,15 @@ interface ScreencastPage {
       path?: string;
       size?: { width: number; height: number };
       quality?: number;
+      onFrame?: (frame: { data: Buffer }) => void | Promise<void>;
       annotate?: { duration?: number; position?: string; fontSize?: number };
     }): Promise<unknown>;
     stop(): Promise<void>;
+    showActions(options?: {
+      duration?: number;
+      fontSize?: number;
+      position?: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right';
+    }): Promise<unknown>;
   };
 }
 
@@ -54,6 +60,7 @@ export class NarrationTimeline {
   private _cursorTelemetry: CursorSample[] = [];
   private _fallbackWarned = false;
   private _screencastStop: (() => Promise<void>) | null = null;
+  private _pendingThumbScene: string | null = null;
 
   constructor(sceneDurations?: Record<string, number>) {
     if (sceneDurations) {
@@ -77,8 +84,8 @@ export class NarrationTimeline {
    * VS Code without the argo pipeline). The fixture wires the env var.
    */
   async startRecording(page: ScreencastPage, options: StartRecordingOptions = {}): Promise<void> {
-    const path = process.env.ARGO_SCREENCAST_PATH;
-    if (!path) {
+    const screencastPath = process.env.ARGO_SCREENCAST_PATH;
+    if (!screencastPath) {
       // Standalone Playwright run — no recording. Demos still work.
       return;
     }
@@ -98,12 +105,46 @@ export class NarrationTimeline {
       }
     }
 
-    await page.screencast.start({ path, size, quality: options.quality });
+    // Wire the JPEG frame stream when either feature is requested:
+    //  - ARGO_LIVE_FRAME_PATH: dashboard / preview live thumbnail
+    //  - ARGO_SCENE_THUMBS=1 + ARGO_THUMBS_DIR: per-scene scrubber JPEGs
+    const liveFramePath = process.env.ARGO_LIVE_FRAME_PATH || '';
+    const thumbsDir = process.env.ARGO_SCENE_THUMBS === '0' ? '' : (process.env.ARGO_THUMBS_DIR || '');
+    let onFrame: ((frame: { data: Buffer }) => void) | undefined;
+    if (liveFramePath || thumbsDir) {
+      onFrame = ({ data }) => {
+        // Best-effort writes — frame stream is high frequency, ignore EAGAIN-style
+        // races with readers. JPEG decoders gracefully fail on partial reads.
+        if (liveFramePath) {
+          try { writeFileSync(liveFramePath, data); } catch { /* ignore */ }
+        }
+        if (thumbsDir && this._pendingThumbScene) {
+          const scene = this._pendingThumbScene;
+          this._pendingThumbScene = null;
+          try { writeFileSync(join(thumbsDir, `${scene}.jpg`), data); } catch { /* ignore */ }
+        }
+      };
+    }
+
+    await page.screencast.start({ path: screencastPath, size, quality: options.quality, onFrame });
     this._screencastStop = () => page.screencast.stop();
+
+    // Optional auto-annotation of every Playwright interaction.
+    const showActionsEnv = process.env.ARGO_SHOW_ACTIONS;
+    if (showActionsEnv) {
+      try {
+        const opts = JSON.parse(showActionsEnv) as Parameters<typeof page.screencast.showActions>[0];
+        await page.screencast.showActions(opts);
+      } catch (err) {
+        console.warn(`Warning: page.screencast.showActions failed: ${(err as Error).message}`);
+      }
+    }
+
     // Re-anchor the timeline so timestamps align with the video, not the test start.
     this.startTime = Date.now();
     this.timings = new Map();
     this.cachedPlacements = null;
+    this._pendingThumbScene = null;
   }
 
   /**
@@ -132,6 +173,10 @@ export class NarrationTimeline {
     const ms = Date.now() - this.startTime;
     this.timings.set(scene, ms);
     this.cachedPlacements = null;
+
+    // Tell the next onFrame callback to also persist this scene's JPEG —
+    // best-effort, gated on ARGO_THUMBS_DIR being set + screencast being live.
+    this._pendingThumbScene = scene;
 
     // Append to JSONL progress file for live scene status in the parent process
     const progressPath = process.env.ARGO_PROGRESS_PATH;

@@ -3,7 +3,7 @@ import { mkdirSync, existsSync, rmSync, writeFileSync, readFileSync, unlinkSync 
 import path from 'node:path';
 import { startAssetServer, type AssetServer } from './asset-server.js';
 import { loadOverlayManifest, hasImageAssets } from './overlays/manifest.js';
-import { normalizeDeviceScaleFactor, type BrowserEngine } from './config.js';
+import { normalizeDeviceScaleFactor, type BrowserEngine, type ShowActionsConfig } from './config.js';
 
 export interface RecordOptions {
   demosDir: string;
@@ -20,6 +20,10 @@ export interface RecordOptions {
   headed?: boolean;
   /** Override the .argo subdirectory name (for variants). Default: demoName. */
   argoSubdir?: string;
+  /** Auto-annotate Playwright interactions in the recording. */
+  showActions?: boolean | ShowActionsConfig;
+  /** Capture a JPEG per scene mark for the preview scrubber. Default: true. */
+  sceneThumbnails?: boolean;
 }
 
 export interface RecordResult {
@@ -105,6 +109,11 @@ export async function record(demoName: string, options: RecordOptions): Promise<
   const progressPath = path.join(argoDir, '.scene-progress.jsonl');
   if (existsSync(progressPath)) unlinkSync(progressPath);
 
+  // Stale live-frame from a previous run would mislead polling clients
+  // (preview "Re-record" button) — drop it.
+  const liveFramePath = path.join(argoDir, '.live-frame.jpg');
+  if (existsSync(liveFramePath)) unlinkSync(liveFramePath);
+
   try {
     return await new Promise<RecordResult>((resolve, reject) => {
       // Poll the progress file to print scene names as they're recorded
@@ -124,6 +133,20 @@ export async function record(demoName: string, options: RecordOptions): Promise<
         } catch { /* best-effort */ }
       }, 500);
 
+      // Encode showActions as JSON when set so the runtime can pass it straight
+      // through to page.screencast.showActions(). Empty string means "off".
+      let showActionsEnv = '';
+      if (options.showActions === true) {
+        showActionsEnv = '{}';
+      } else if (options.showActions && typeof options.showActions === 'object') {
+        showActionsEnv = JSON.stringify(options.showActions);
+      }
+
+      // Per-scene thumbs: default ON. Pass '0' to opt out, anything else (including '') means on.
+      const sceneThumbsEnv = options.sceneThumbnails === false ? '0' : '1';
+      const thumbsDir = path.resolve(path.join(argoDir, 'thumbs'));
+      mkdirSync(thumbsDir, { recursive: true });
+
       execFile('npx', ['playwright', 'test', '--config', recordConfigPath, '--grep', demoName, '--project', 'demos'], {
         env: {
           ...process.env,
@@ -133,6 +156,10 @@ export async function record(demoName: string, options: RecordOptions): Promise<
           ARGO_SCREENCAST_PATH: path.resolve(videoPath),
           ARGO_SCREENCAST_WIDTH: String(options.video.width * normalizeDeviceScaleFactor(options.deviceScaleFactor)),
           ARGO_SCREENCAST_HEIGHT: String(options.video.height * normalizeDeviceScaleFactor(options.deviceScaleFactor)),
+          ARGO_SHOW_ACTIONS: showActionsEnv,
+          ARGO_SCENE_THUMBS: sceneThumbsEnv,
+          ARGO_THUMBS_DIR: thumbsDir,
+          ARGO_LIVE_FRAME_PATH: path.resolve(path.join(argoDir, '.live-frame.jpg')),
           BASE_URL: options.baseURL,
           ARGO_ASSET_URL: assetServer?.url ?? '',
           ARGO_AUTO_BACKGROUND: options.autoBackground ? '1' : '',

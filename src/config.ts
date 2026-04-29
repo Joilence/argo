@@ -15,6 +15,15 @@ export interface TTSConfig {
 
 export type BrowserEngine = 'chromium' | 'webkit' | 'firefox';
 
+export interface ShowActionsConfig {
+  /** Where to render action labels. Default: 'top-right'. */
+  position?: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right';
+  /** Font size in px. Default: 24. */
+  fontSize?: number;
+  /** How long each annotation persists in ms. Default: 500. */
+  duration?: number;
+}
+
 export interface VideoConfig {
   width: number;
   height: number;
@@ -27,6 +36,13 @@ export interface VideoConfig {
   hasTouch?: boolean;
   /** Additional Playwright browser context options (colorScheme, locale, geolocation, permissions, etc.). */
   contextOptions?: Record<string, unknown>;
+  /** Auto-annotate Playwright interactions (clicks, fills) with action labels in the recording.
+   * Drives `page.screencast.showActions()` from the narration fixture. Off by default. */
+  showActions?: boolean | ShowActionsConfig;
+  /** Capture a JPEG thumbnail per scene at the moment `narration.mark()` fires.
+   * Saved to `.argo/<demo>/thumbs/<scene>.jpg`. Used by the preview scrubber for
+   * instant strip rendering. Default: true. */
+  sceneThumbnails?: boolean;
 }
 
 export type FilterTransitionType = 'fade-through-black' | 'dissolve' | 'wipe-left' | 'wipe-right';

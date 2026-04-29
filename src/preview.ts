@@ -1299,6 +1299,40 @@ self.onmessage = async (e) => {
         return;
       }
 
+      // Live frame from page.screencast onFrame — populated only while a
+      // recording is active. Returns 404 + 'Cache-Control: no-store' when
+      // absent so the polling client can reliably probe.
+      if (url.startsWith('/live-frame.jpg')) {
+        const livePath = join(demoDir, '.live-frame.jpg');
+        if (existsSync(livePath)) {
+          res.setHeader('Cache-Control', 'no-store');
+          serveFile(res, livePath);
+        } else {
+          res.writeHead(404, { 'Cache-Control': 'no-store' });
+          res.end('No live frame');
+        }
+        return;
+      }
+
+      // Per-scene thumbnails captured at narration.mark() time.
+      if (url.startsWith('/thumbs/')) {
+        const file = url.slice('/thumbs/'.length).split('?')[0];
+        // Bound the filename to a single segment + .jpg to prevent traversal.
+        if (!/^[a-zA-Z0-9._-]+\.jpg$/.test(file)) {
+          res.writeHead(400);
+          res.end('Bad thumb name');
+          return;
+        }
+        const thumbPath = join(demoDir, 'thumbs', file);
+        if (existsSync(thumbPath)) {
+          serveFile(res, thumbPath);
+        } else {
+          res.writeHead(404);
+          res.end('Thumb not found');
+        }
+        return;
+      }
+
       // Root — serve the preview HTML
       if (url === '/' || url === '/index.html') {
         const data = loadPreviewData(demoName, argoDir, demosDir, outputDir, options.exportConfig, activeMusicPath);
@@ -2388,10 +2422,21 @@ const PREVIEW_HTML = `<!DOCTYPE html>
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 40px 48px;
+    padding: 32px 40px 28px;
     text-align: center;
-    max-width: 400px;
+    max-width: 520px;
   }
+  /* Live frame from page.screencast onFrame, polled while re-recording. */
+  .recording-live {
+    width: 440px;
+    aspect-ratio: 16 / 9;
+    margin: 0 auto 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg) center / contain no-repeat;
+    display: none;
+  }
+  .recording-live.has-frame { display: block; }
   .recording-spinner {
     width: 32px;
     height: 32px;
@@ -2613,6 +2658,7 @@ const PREVIEW_HTML = `<!DOCTYPE html>
 
 <div class="recording-overlay" id="recording-overlay">
   <div class="recording-card">
+    <div class="recording-live" id="recording-live"></div>
     <div class="recording-spinner"></div>
     <div class="recording-title" id="recording-title">Re-recording pipeline...</div>
     <div class="recording-subtitle" id="recording-subtitle">All editing is paused while the pipeline runs.</div>
@@ -4903,13 +4949,35 @@ document.getElementById('btn-rerecord').addEventListener('click', async () => {
   const overlay = document.getElementById('recording-overlay');
   const title = document.getElementById('recording-title');
   const subtitle = document.getElementById('recording-subtitle');
+  const live = document.getElementById('recording-live');
   overlay.classList.remove('success', 'error');
   overlay.classList.add('active');
   title.textContent = 'Re-recording pipeline...';
   subtitle.textContent = 'All editing is paused while the pipeline runs.';
+  live.classList.remove('has-frame');
+  live.style.backgroundImage = '';
   video.pause();
   stopAudio();
   showPlayIcon();
+
+  // Poll the screencast onFrame output (.live-frame.jpg) while the pipeline runs.
+  // Cache-bust with a timestamp; the server already sets no-store but some
+  // proxies are stubborn.
+  const livePoll = setInterval(async () => {
+    try {
+      const r = await fetch('/live-frame.jpg?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      // Revoke the previous URL on next tick to avoid leaking blobs.
+      const prev = live.dataset.prevUrl;
+      live.dataset.prevUrl = url;
+      live.style.backgroundImage = 'url(' + url + ')';
+      live.classList.add('has-frame');
+      if (prev) URL.revokeObjectURL(prev);
+    } catch { /* ignore — polling is best-effort */ }
+  }, 750);
+
   try {
     const resp = await fetch('/api/rerecord', { method: 'POST' });
     const result = await resp.json();
@@ -4923,6 +4991,10 @@ document.getElementById('btn-rerecord').addEventListener('click', async () => {
     title.textContent = 'Recording failed';
     subtitle.textContent = err.message;
     setTimeout(() => overlay.classList.remove('active', 'error'), 5000);
+  } finally {
+    clearInterval(livePoll);
+    const prev = live.dataset.prevUrl;
+    if (prev) { URL.revokeObjectURL(prev); delete live.dataset.prevUrl; }
   }
 });
 

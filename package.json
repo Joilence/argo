@@ -1,6 +1,6 @@
 {
   "name": "@argo-video/cli",
-  "version": "0.32.0",
+  "version": "0.33.0",
   "description": "Turn Playwright demo scripts into polished product demo videos with AI voiceover",
   "type": "module",
   "main": "./dist/index.js",
@@ -26,7 +26,7 @@
     "playwright": ">=1.59.0"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.0.0-next.7",
+    "@huggingface/transformers": "^4.2.0",
     "commander": "^12.0.0",
     "gsap": "^3.15.0",
     "kokoro-js": "^1.2.1"
