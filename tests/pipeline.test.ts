@@ -132,14 +132,16 @@ describe('runPipeline', () => {
 
   it('passes correct options to record', async () => {
     await runPipeline(DEMO_NAME, defaultConfig);
-    expect(mockedRecord).toHaveBeenCalledWith(DEMO_NAME, {
+    // Use objectContaining + matching only on the fields the test cares about,
+    // so future additions to RecordOptions don't break this assertion.
+    expect(mockedRecord).toHaveBeenCalledWith(DEMO_NAME, expect.objectContaining({
       demosDir: 'demos',
       baseURL: 'http://localhost:3000',
-      video: { width: 1920, height: 1080 },
+      video: { width: 1920, height: 1080, fps: 30 },
       browser: 'chromium',
       deviceScaleFactor: 1,
       autoBackground: false,
-    });
+    }));
   });
 
   it('passes correct options to exportVideo', async () => {
