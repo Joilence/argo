@@ -10,7 +10,7 @@ import { generateSrt, generateVtt } from './subtitles.js';
 import { generateChapterMetadata } from './chapters.js';
 import { buildSceneReport, formatSceneReport } from './report.js';
 import { applySpeedRampToTimeline, type SceneSpeedMap } from './speed-ramp.js';
-import { shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
+import { shiftCameraMoves, type CameraMove } from './camera-move.js';
 import {
   resolveFreezes,
   adjustPlacementsForFreezes,
@@ -125,12 +125,15 @@ export async function runPipeline(
   // Users generate + audition clips in the browser (WebGPU), then save
   // the selected WAV. Pipeline uses the saved file via audio.music.
 
-  // Step 2: Record browser demo
+  // Step 2: Record browser demo. When captureMode is 'jpeg-stitch', the recorder
+  // (narration.startRecording) spawns an ffmpeg child and streams JPEGs from the
+  // CDP screencast directly into libx264 — no separate stitch step is needed; the
+  // mp4 lands inline at .argo/<demo>/video.mp4. Avoids Playwright's hardcoded VP8.
   console.log('🎬 Rolling camera...');
-  const { timingPath } = await record(demoName, {
+  const { timingPath, videoPath } = await record(demoName, {
     demosDir: config.demosDir,
     baseURL: config.baseURL,
-    video: { width: config.video.width, height: config.video.height },
+    video: { width: config.video.width, height: config.video.height, fps: config.video.fps },
     browser: config.video.browser,
     deviceScaleFactor: config.video.deviceScaleFactor,
     isMobile: config.video.isMobile,
@@ -141,6 +144,8 @@ export async function runPipeline(
     allowRawGsap: config.overlays.allowRawGsap,
     showActions: config.video.showActions,
     sceneThumbnails: config.video.sceneThumbnails,
+    captureMode: config.video.captureMode,
+    jpegQuality: config.video.jpegQuality,
     headed: pipelineOpts?.headed,
   });
 
@@ -166,8 +171,7 @@ export async function runPipeline(
     // Camera moves are optional — don't fail the pipeline
   }
 
-  // Use actual video duration for alignment
-  const videoPath = join(argoDir, 'video.webm');
+  // Use actual video duration for alignment (videoPath was returned by record() above)
   const totalDurationMs = getVideoDurationMs(videoPath);
 
   let tailPadMs: number | undefined;
@@ -344,11 +348,11 @@ export async function runPipeline(
   if (tailPadMs !== undefined) exportOptions.tailPadMs = tailPadMs;
   if (headTrimMs > 0) exportOptions.headTrimMs = headTrimMs;
 
-  // Apply camera moves — shift for head trim, scale for deviceScaleFactor
+  // Apply camera moves — shift for head trim. Coords stay at CSS pixels; the
+  // export's zoompan filter operates on already-downscaled output-dim frames
+  // (see export.ts: vFilters lanczos downscale runs before cameraMoves).
   if (cameraMoves.length > 0) {
-    let moves = shiftCameraMoves(cameraMoves, headTrimMs);
-    moves = scaleCameraMoves(moves, config.video.deviceScaleFactor ?? 1);
-    exportOptions.cameraMoves = moves;
+    exportOptions.cameraMoves = shiftCameraMoves(cameraMoves, headTrimMs);
   }
 
   // Pre-render shader transition frames when transition type is 'shader'
@@ -438,7 +442,7 @@ export async function runPipeline(
       const variantRecord = await record(demoName, {
         demosDir: config.demosDir,
         baseURL: config.baseURL,
-        video: { width: variant.video.width, height: variant.video.height },
+        video: { width: variant.video.width, height: variant.video.height, fps: config.video.fps },
         browser: config.video.browser,
         deviceScaleFactor: config.video.deviceScaleFactor,
         isMobile: config.video.isMobile,
@@ -449,13 +453,15 @@ export async function runPipeline(
         allowRawGsap: config.overlays.allowRawGsap,
         showActions: config.video.showActions,
         sceneThumbnails: config.video.sceneThumbnails,
+        captureMode: config.video.captureMode,
+        jpegQuality: config.video.jpegQuality,
         headed: pipelineOpts?.headed,
         argoSubdir: variantSubdir,
       });
 
       // Align with shared TTS clips
       const variantTiming: SceneTiming = JSON.parse(readFileSync(variantRecord.timingPath, 'utf-8'));
-      const variantVideoPath = join('.argo', variantSubdir, 'video.webm');
+      const variantVideoPath = variantRecord.videoPath;
       const variantDurationMs = getVideoDurationMs(variantVideoPath);
       const variantHeadTrimMs = computeHeadTrimMs(variantTiming);
 
@@ -524,7 +530,6 @@ export async function runPipeline(
 
       if (variantCameraMoves.length > 0) {
         variantCameraMoves = shiftCameraMoves(variantCameraMoves, variantHeadTrimMs);
-        variantCameraMoves = scaleCameraMoves(variantCameraMoves, config.video.deviceScaleFactor ?? 1);
       }
 
       // Render overlay PNGs for imported video variants

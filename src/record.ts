@@ -8,7 +8,7 @@ import { normalizeDeviceScaleFactor, type BrowserEngine, type ShowActionsConfig 
 export interface RecordOptions {
   demosDir: string;
   baseURL: string;
-  video: { width: number; height: number };
+  video: { width: number; height: number; fps?: number };
   browser?: BrowserEngine;
   deviceScaleFactor?: number;
   isMobile?: boolean;
@@ -24,6 +24,10 @@ export interface RecordOptions {
   showActions?: boolean | ShowActionsConfig;
   /** Capture a JPEG per scene mark for the preview scrubber. Default: true. */
   sceneThumbnails?: boolean;
+  /** Capture all frames as JPEGs and stitch in post for higher quality. */
+  captureMode?: 'webm' | 'jpeg-stitch';
+  /** JPEG quality 0-100. Used by jpeg-stitch mode. */
+  jpegQuality?: number;
 }
 
 export interface RecordResult {
@@ -48,6 +52,16 @@ function createPlaywrightConfig(demoName: string, options: RecordOptions, output
   }
   const extraUse = extraUseFields.length > 0 ? '\n' + extraUseFields.join('\n') : '';
 
+  // Chromium's CDP screencast captures JPEGs at viewport CSS pixels regardless
+  // of `deviceScaleFactor` (Page.startScreencast caps at viewport, not at the
+  // emulated device pixel ratio). The `--force-device-scale-factor` launch flag
+  // pins the renderer's native DPR so screencast frames come out at true 2x/3x
+  // resolution — required for supersampled lanczos downscale in export.
+  const needsDpiFlag = browser === 'chromium' && deviceScaleFactor > 1;
+  const launchOptionsField = needsDpiFlag
+    ? `\n        launchOptions: { args: ['--force-device-scale-factor=${deviceScaleFactor}'] },`
+    : '';
+
   // Recording is driven by `narration.startRecording(page)` which calls
   // page.screencast.start() at the first scene — no Playwright recordVideo here.
   return `import { defineConfig } from '@playwright/test';
@@ -65,7 +79,7 @@ export default defineConfig({
         browserName: ${JSON.stringify(browser)},
         baseURL: ${JSON.stringify(options.baseURL)},
         viewport: { width: ${width}, height: ${height} },
-        deviceScaleFactor: ${deviceScaleFactor},${extraUse}
+        deviceScaleFactor: ${deviceScaleFactor},${extraUse}${launchOptionsField}
         video: 'off',
         trace: 'off',
       },
@@ -79,7 +93,18 @@ export async function record(demoName: string, options: RecordOptions): Promise<
   const argoDir = path.join('.argo', options.argoSubdir ?? demoName);
   mkdirSync(argoDir, { recursive: true });
 
-  const videoPath = path.join(argoDir, 'video.webm');
+  // jpeg-stitch (stream-encode) produces an H.264 mp4 directly — JPEG frames
+  // are piped to ffmpeg child in narration.startRecording, bypassing
+  // Playwright's hardcoded VP8 encoder. Default mode keeps Playwright's WebM.
+  const useJpegStitch = options.captureMode === 'jpeg-stitch';
+  const videoExt = useJpegStitch ? '.mp4' : '.webm';
+  const videoPath = path.join(argoDir, `video${videoExt}`);
+  // Playwright's screencast.start still requires a `path` even when we ignore
+  // its WebM output (we feed JPEGs to our own ffmpeg via onFrame). Route it to
+  // a discardable sidecar so it doesn't clobber our streamed mp4.
+  const enginePath = useJpegStitch
+    ? path.join(argoDir, '.engine-discard.webm')
+    : videoPath;
   const timingPath = path.join(argoDir, '.timing.json');
   const testResultsDir = path.resolve('test-results');
   const recordConfigPath = path.join(argoDir, 'playwright.record.config.mjs');
@@ -147,19 +172,29 @@ export async function record(demoName: string, options: RecordOptions): Promise<
       const thumbsDir = path.resolve(path.join(argoDir, 'thumbs'));
       mkdirSync(thumbsDir, { recursive: true });
 
+      // jpeg-stitch (stream-encode) mode: narration.startRecording spawns an
+      // ffmpeg child and pipes JPEGs from `onFrame` directly into it. ARGO_STREAM_OUT
+      // is the mp4 path that ffmpeg writes; ARGO_FPS sets the input cadence (frame
+      // gaps in CDP get padded with frame duplicates to match wallclock).
+      const streamOutPath = useJpegStitch ? path.resolve(videoPath) : '';
+      const jpegQuality = String(options.jpegQuality ?? 95);
+
       execFile('npx', ['playwright', 'test', '--config', recordConfigPath, '--grep', demoName, '--project', 'demos'], {
         env: {
           ...process.env,
           ARGO_DEMO_NAME: demoName,
           ARGO_OUTPUT_DIR: path.resolve(argoDir),
           ARGO_PROGRESS_PATH: progressPath,
-          ARGO_SCREENCAST_PATH: path.resolve(videoPath),
+          ARGO_SCREENCAST_PATH: path.resolve(enginePath),
           ARGO_SCREENCAST_WIDTH: String(options.video.width * normalizeDeviceScaleFactor(options.deviceScaleFactor)),
           ARGO_SCREENCAST_HEIGHT: String(options.video.height * normalizeDeviceScaleFactor(options.deviceScaleFactor)),
           ARGO_SHOW_ACTIONS: showActionsEnv,
           ARGO_SCENE_THUMBS: sceneThumbsEnv,
           ARGO_THUMBS_DIR: thumbsDir,
           ARGO_LIVE_FRAME_PATH: path.resolve(path.join(argoDir, '.live-frame.jpg')),
+          ARGO_STREAM_OUT: streamOutPath,
+          ARGO_FPS: String(options.video.fps ?? 30),
+          ARGO_JPEG_QUALITY: jpegQuality,
           BASE_URL: options.baseURL,
           ARGO_ASSET_URL: assetServer?.url ?? '',
           ARGO_AUTO_BACKGROUND: options.autoBackground ? '1' : '',
@@ -198,6 +233,13 @@ export async function record(demoName: string, options: RecordOptions): Promise<
             `Ensure the demo uses the argo test fixture with narration.mark() calls.`
           ));
           return;
+        }
+
+        // Clean up the engine's discardable WebM in stream-encode mode.
+        // Playwright requires a path for screencast.start, but we ignore that
+        // output entirely (frames go straight to our ffmpeg child via onFrame).
+        if (useJpegStitch && existsSync(enginePath)) {
+          try { rmSync(enginePath); } catch { /* best-effort */ }
         }
 
         resolve({ videoPath, timingPath });

@@ -10,6 +10,15 @@ export default defineConfig({
     height: 1080,
     fps: 30,
     browser: 'chromium',
+    // 2x DPI capture — page renders at 3840×2160, export downscales with lanczos.
+    // Requires --force-device-scale-factor flag (auto-applied by record.ts) so the
+    // CDP screencast actually delivers 4K JPEGs (without the flag, screencast caps
+    // at viewport CSS pixels regardless of DPR).
+    deviceScaleFactor: 2,
+    // EXPERIMENT (feat/jpeg-stitch): capture all frames as high-quality JPEGs
+    // and stitch in post with libx264 — bypasses the engine's VP8 encoder.
+    captureMode: 'jpeg-stitch',
+    jpegQuality: 95,
   },
   export: {
     preset: 'slow',
@@ -24,7 +33,9 @@ export default defineConfig({
       opacity: 0.16,
       margin: 26,
     },
-    sharpen: true,
+    // A/B test: CAS sharpen disabled to check if it's amplifying soft JPEG edges
+    // into halos (the "water on paper" wash). Re-enable once verified.
+    sharpen: false,
     // Frame: wrap the recording in a styled frame with padding, rounded corners,
     // drop shadow, and a gradient background (the "Screen Studio" look).
     frame: {

@@ -7,6 +7,11 @@ export default {
     height: 1080,
     fps: 30,
     browser: 'webkit',
+    // EXPERIMENT (feat/jpeg-stitch branch): capture every frame as a high-
+    // quality JPEG and stitch in post with libx264, instead of the engine's
+    // VP8 WebM. Higher per-frame quality, costs ~180 MB/min of intermediates.
+    captureMode: 'jpeg-stitch',
+    jpegQuality: 95,
     // For flagship showcase / landing-page exports on a 5K display, switch to:
     // width: 3840,
     // height: 2160,
