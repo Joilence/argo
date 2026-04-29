@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import path, { join, basename } from 'node:path';
 import { generateClips } from './tts/generate.js';
 import { record } from './record.js';
 import { alignClips, type ClipInfo, type SceneTiming } from './tts/align.js';
@@ -10,7 +10,7 @@ import { generateSrt, generateVtt } from './subtitles.js';
 import { generateChapterMetadata } from './chapters.js';
 import { buildSceneReport, formatSceneReport } from './report.js';
 import { applySpeedRampToTimeline, type SceneSpeedMap } from './speed-ramp.js';
-import { shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
+import { shiftCameraMoves, type CameraMove } from './camera-move.js';
 import {
   resolveFreezes,
   adjustPlacementsForFreezes,
@@ -127,7 +127,12 @@ export async function runPipeline(
 
   // Step 2: Record browser demo
   console.log('🎬 Rolling camera...');
-  const { timingPath } = await record(demoName, {
+  console.log('   [debug] config.video:', JSON.stringify({
+    captureMode: config.video.captureMode,
+    jpegQuality: config.video.jpegQuality,
+    browser: config.video.browser,
+  }));
+  const { timingPath, videoPath } = await record(demoName, {
     demosDir: config.demosDir,
     baseURL: config.baseURL,
     video: { width: config.video.width, height: config.video.height },
@@ -141,8 +146,25 @@ export async function runPipeline(
     allowRawGsap: config.overlays.allowRawGsap,
     showActions: config.video.showActions,
     sceneThumbnails: config.video.sceneThumbnails,
+    captureMode: config.video.captureMode,
+    jpegQuality: config.video.jpegQuality,
     headed: pipelineOpts?.headed,
   });
+
+  // Step 2b: jpeg-stitch — replace the engine WebM with one built from the
+  // captured JPEG sequence. Higher per-frame quality than VP8/chromium and
+  // independent of the engine's screencast encoder.
+  if (config.video.captureMode === 'jpeg-stitch') {
+    const { stitchJpegFrames } = await import('./jpeg-stitch.js');
+    const argoDir = path.dirname(videoPath);
+    const framesDir = path.join(argoDir, 'frames');
+    console.log('🧵 Stitching JPEG frames...');
+    const result = await stitchJpegFrames({ framesDir, outputPath: videoPath, fps: config.video.fps });
+    console.log(
+      `   ${result.frameCount} frames → ${result.durationSec.toFixed(1)}s ` +
+      `(intermediate: ${(result.intermediateBytes / 1024 / 1024).toFixed(0)} MB)`
+    );
+  }
 
   // Step 3: Align clips with timing
   let timing: SceneTiming;
@@ -166,8 +188,7 @@ export async function runPipeline(
     // Camera moves are optional — don't fail the pipeline
   }
 
-  // Use actual video duration for alignment
-  const videoPath = join(argoDir, 'video.webm');
+  // Use actual video duration for alignment (videoPath was returned by record() above)
   const totalDurationMs = getVideoDurationMs(videoPath);
 
   let tailPadMs: number | undefined;
@@ -344,11 +365,11 @@ export async function runPipeline(
   if (tailPadMs !== undefined) exportOptions.tailPadMs = tailPadMs;
   if (headTrimMs > 0) exportOptions.headTrimMs = headTrimMs;
 
-  // Apply camera moves — shift for head trim, scale for deviceScaleFactor
+  // Apply camera moves — shift for head trim. Coords stay at CSS pixels; the
+  // export's zoompan filter operates on already-downscaled output-dim frames
+  // (see export.ts: vFilters lanczos downscale runs before cameraMoves).
   if (cameraMoves.length > 0) {
-    let moves = shiftCameraMoves(cameraMoves, headTrimMs);
-    moves = scaleCameraMoves(moves, config.video.deviceScaleFactor ?? 1);
-    exportOptions.cameraMoves = moves;
+    exportOptions.cameraMoves = shiftCameraMoves(cameraMoves, headTrimMs);
   }
 
   // Pre-render shader transition frames when transition type is 'shader'
@@ -524,7 +545,6 @@ export async function runPipeline(
 
       if (variantCameraMoves.length > 0) {
         variantCameraMoves = shiftCameraMoves(variantCameraMoves, variantHeadTrimMs);
-        variantCameraMoves = scaleCameraMoves(variantCameraMoves, config.video.deviceScaleFactor ?? 1);
       }
 
       // Render overlay PNGs for imported video variants

@@ -410,8 +410,11 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   // the time variable `t` is continuous across the concatenated output.
   const cameraMoves = options.cameraMoves;
   if (cameraMoves && cameraMoves.length > 0) {
-    const frameW = (outputWidth ?? 1920) * deviceScaleFactor;
-    const frameH = (outputHeight ?? 1080) * deviceScaleFactor;
+    // Camera-move runs AFTER the early svpre/vFilters downscale to outputWidth ×
+    // outputHeight, so the zoompan filter sees output-dim frames. Coords are kept
+    // at CSS pixels (no `* deviceScaleFactor`) — pipeline.ts no longer upscales them.
+    const frameW = outputWidth ?? 1920;
+    const frameH = outputHeight ?? 1080;
     const sourceFps = getVideoFrameRate(videoPath);
     const camFilter = buildCameraMoveFilter(cameraMoves, frameW, frameH, `[${videoSource}]`, sourceFps);
     if (camFilter) {

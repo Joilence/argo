@@ -26,7 +26,7 @@ import {
 import { generateChapterMetadata } from './chapters.js';
 import { generateSrt, generateVtt } from './subtitles.js';
 import { applySpeedRampToTimeline, type Segment, type SceneSpeedMap } from './speed-ramp.js';
-import { shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
+import { shiftCameraMoves, type CameraMove } from './camera-move.js';
 import { resolveFreezes, adjustPlacementsForFreezes, totalFreezeDurationMs, type FreezeSpec } from './freeze.js';
 import { renderShaderTransitions } from './transitions/shader-render.js';
 import type { Placement } from './tts/align.js';
@@ -137,6 +137,13 @@ export function createProgram(): Command {
       const demoDir = `.argo/${demo}`;
       const timingPath = `${demoDir}/.timing.json`;
       const manifestPath = `${config.demosDir}/${demo}.scenes.json`;
+      // Match export.ts: prefer non-webm intermediates (jpeg-stitch produces .mp4)
+      // since libx264 can't be muxed into webm.
+      let videoFile = `${demoDir}/video.webm`;
+      for (const ext of ['.mp4', '.mov', '.mkv', '.avi']) {
+        const candidate = `${demoDir}/video${ext}`;
+        if (existsSync(candidate)) { videoFile = candidate; break; }
+      }
       let chapterMetadataPath: string | undefined;
       let placements: Placement[] | undefined;
       let totalDurationMs: number | undefined;
@@ -147,7 +154,7 @@ export function createProgram(): Command {
       if (existsSync(timingPath) && existsSync(manifestPath)) {
         const timing = JSON.parse(readFileSync(timingPath, 'utf-8')) as Record<string, number>;
         const manifestEntries = readScenesManifest(manifestPath);
-        const rawVideoDurationMs = getVideoDurationMs(`${demoDir}/video.webm`);
+        const rawVideoDurationMs = getVideoDurationMs(videoFile);
         const sceneDurations = buildSceneDurationsFromCache(
           demo,
           manifestEntries,
@@ -238,7 +245,7 @@ export function createProgram(): Command {
           durationMs: shaderTransition.durationMs ?? 800,
         }));
         const rendered = await renderShaderTransitions({
-          videoPath: `${demoDir}/video.webm`,
+          videoPath: videoFile,
           boundaries,
           shader: shaderTransition.shader,
           width: config.video?.width ?? 1280,
@@ -280,7 +287,8 @@ export function createProgram(): Command {
             if (existsSync(cameraMovesPath)) {
               let moves: CameraMove[] = JSON.parse(readFileSync(cameraMovesPath, 'utf-8'));
               if (headTrimMs && headTrimMs > 0) moves = shiftCameraMoves(moves, headTrimMs);
-              moves = scaleCameraMoves(moves, config.video.deviceScaleFactor ?? 1);
+              // Coords stay at CSS pixels — export's zoompan filter operates on
+              // already-downscaled output-dim frames. See pipeline.ts comment.
               return moves;
             }
           } catch { /* optional */ }

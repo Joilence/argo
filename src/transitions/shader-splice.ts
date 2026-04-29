@@ -33,8 +33,43 @@ export function buildShaderSpliceFilter(opts: ShaderSpliceOptions): ShaderSplice
   const videoLabels: string[] = [];
   const audioLabels: string[] = [];
 
+  // Pre-flight: count active (non-skipped) boundaries. A boundary is dropped when
+  // dHalf clamps to ≤0 (overlapping transitions or boundary at video edge).
+  // Required to size the upcoming split correctly — ffmpeg errors on unused split
+  // output pads.
+  let activeCount = 0;
+  {
+    let cursor = 0;
+    for (const b of boundaries) {
+      const rawDHalf = b.durationMs / 2000;
+      const dHalf = Math.min(rawDHalf, Math.max(0, b.boundarySec - cursor), Math.max(0, totalDurationSec - b.boundarySec));
+      if (dHalf > 0) { activeCount++; cursor = b.boundarySec + dHalf; }
+    }
+  }
+
+  // Explicit split of the source video (and audio) — required when videoInputLabel
+  // is a named filter-graph output like `[svpre]` rather than an input ref like
+  // `[0:v]`. Input refs fan out implicitly; filter outputs do not, and reusing one
+  // multiple times silently falls back to the raw source (causing dimension
+  // mismatches when a pre-scale filter was applied).
+  //
+  // Video consumers: activeCount+1 scene segments (between/after active boundaries —
+  // PNG segments come from their own `[N:v]` input, not videoInputLabel).
+  // Audio consumers: 2*activeCount+1 — scene segments + transition windows.
+  const numVideoSegments = activeCount + 1;
+  const numAudioSegments = activeCount * 2 + 1;
+  const vSplitLabels = Array.from({ length: numVideoSegments }, (_, i) => `vsrc${i}`);
+  parts.push(`${videoInputLabel}split=${numVideoSegments}${vSplitLabels.map(l => `[${l}]`).join('')}`);
+  const aSplitLabels: string[] = [];
+  if (audioInputLabel) {
+    for (let i = 0; i < numAudioSegments; i++) aSplitLabels.push(`asrc${i}`);
+    parts.push(`${audioInputLabel}asplit=${numAudioSegments}${aSplitLabels.map(l => `[${l}]`).join('')}`);
+  }
+
   let cursorSec = 0;
   let activeBoundaries = 0;
+  let videoSegmentIdx = 0;
+  let audioSegmentIdx = 0;
   for (let i = 0; i < boundaries.length; i++) {
     const b = boundaries[i];
     const rawDHalf = b.durationMs / 2000;
@@ -66,14 +101,14 @@ export function buildShaderSpliceFilter(opts: ShaderSpliceOptions): ShaderSplice
 
     const vSceneLabel = `ssv${activeBoundaries}`;
     parts.push(
-      `${videoInputLabel}trim=${cursorSec.toFixed(3)}:${sceneEnd.toFixed(3)},setpts=PTS-STARTPTS[${vSceneLabel}]`,
+      `[${vSplitLabels[videoSegmentIdx++]}]trim=${cursorSec.toFixed(3)}:${sceneEnd.toFixed(3)},setpts=PTS-STARTPTS[${vSceneLabel}]`,
     );
     videoLabels.push(`[${vSceneLabel}]`);
 
     if (audioInputLabel) {
       const aSceneLabel = `ssa${activeBoundaries}`;
       parts.push(
-        `${audioInputLabel}atrim=${cursorSec.toFixed(3)}:${sceneEnd.toFixed(3)},asetpts=PTS-STARTPTS[${aSceneLabel}]`,
+        `[${aSplitLabels[audioSegmentIdx++]}]atrim=${cursorSec.toFixed(3)}:${sceneEnd.toFixed(3)},asetpts=PTS-STARTPTS[${aSceneLabel}]`,
       );
       audioLabels.push(`[${aSceneLabel}]`);
     }
@@ -85,7 +120,7 @@ export function buildShaderSpliceFilter(opts: ShaderSpliceOptions): ShaderSplice
     if (audioInputLabel) {
       const aTransLabel = `sta${activeBoundaries}`;
       parts.push(
-        `${audioInputLabel}atrim=${sceneEnd.toFixed(3)}:${transitionEnd.toFixed(3)},asetpts=PTS-STARTPTS[${aTransLabel}]`,
+        `[${aSplitLabels[audioSegmentIdx++]}]atrim=${sceneEnd.toFixed(3)}:${transitionEnd.toFixed(3)},asetpts=PTS-STARTPTS[${aTransLabel}]`,
       );
       audioLabels.push(`[${aTransLabel}]`);
     }
@@ -97,13 +132,13 @@ export function buildShaderSpliceFilter(opts: ShaderSpliceOptions): ShaderSplice
   // Final scene segment
   const vLastLabel = `ssv${activeBoundaries}`;
   parts.push(
-    `${videoInputLabel}trim=${cursorSec.toFixed(3)}:${totalDurationSec.toFixed(3)},setpts=PTS-STARTPTS[${vLastLabel}]`,
+    `[${vSplitLabels[videoSegmentIdx++]}]trim=${cursorSec.toFixed(3)}:${totalDurationSec.toFixed(3)},setpts=PTS-STARTPTS[${vLastLabel}]`,
   );
   videoLabels.push(`[${vLastLabel}]`);
   if (audioInputLabel) {
     const aLastLabel = `ssa${activeBoundaries}`;
     parts.push(
-      `${audioInputLabel}atrim=${cursorSec.toFixed(3)}:${totalDurationSec.toFixed(3)},asetpts=PTS-STARTPTS[${aLastLabel}]`,
+      `[${aSplitLabels[audioSegmentIdx++]}]atrim=${cursorSec.toFixed(3)}:${totalDurationSec.toFixed(3)},asetpts=PTS-STARTPTS[${aLastLabel}]`,
     );
     audioLabels.push(`[${aLastLabel}]`);
   }

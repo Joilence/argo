@@ -43,6 +43,15 @@ export interface VideoConfig {
    * Saved to `.argo/<demo>/thumbs/<scene>.jpg`. Used by the preview scrubber for
    * instant strip rendering. Default: true. */
   sceneThumbnails?: boolean;
+  /** Capture every screencast frame as a high-quality JPEG and stitch into the
+   * final WebM with ffmpeg, instead of using the engine's VP8 WebM directly.
+   * Higher per-frame quality than chromium VP8 and avoids webkit's screencast
+   * encoder. Costs ~180 MB/min of intermediate JPEGs during recording.
+   * Default: false. */
+  captureMode?: 'webm' | 'jpeg-stitch';
+  /** JPEG quality (0-100) for the screencast frame stream. Higher = larger
+   * intermediates and better stitched video. Default: 95. */
+  jpegQuality?: number;
 }
 
 export type FilterTransitionType = 'fade-through-black' | 'dissolve' | 'wipe-left' | 'wipe-right';

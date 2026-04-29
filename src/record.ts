@@ -24,6 +24,10 @@ export interface RecordOptions {
   showActions?: boolean | ShowActionsConfig;
   /** Capture a JPEG per scene mark for the preview scrubber. Default: true. */
   sceneThumbnails?: boolean;
+  /** Capture all frames as JPEGs and stitch in post for higher quality. */
+  captureMode?: 'webm' | 'jpeg-stitch';
+  /** JPEG quality 0-100. Used by jpeg-stitch mode. */
+  jpegQuality?: number;
 }
 
 export interface RecordResult {
@@ -48,6 +52,16 @@ function createPlaywrightConfig(demoName: string, options: RecordOptions, output
   }
   const extraUse = extraUseFields.length > 0 ? '\n' + extraUseFields.join('\n') : '';
 
+  // Chromium's CDP screencast captures JPEGs at viewport CSS pixels regardless
+  // of `deviceScaleFactor` (Page.startScreencast caps at viewport, not at the
+  // emulated device pixel ratio). The `--force-device-scale-factor` launch flag
+  // pins the renderer's native DPR so screencast frames come out at true 2x/3x
+  // resolution — required for supersampled lanczos downscale in export.
+  const needsDpiFlag = browser === 'chromium' && deviceScaleFactor > 1;
+  const launchOptionsField = needsDpiFlag
+    ? `\n        launchOptions: { args: ['--force-device-scale-factor=${deviceScaleFactor}'] },`
+    : '';
+
   // Recording is driven by `narration.startRecording(page)` which calls
   // page.screencast.start() at the first scene — no Playwright recordVideo here.
   return `import { defineConfig } from '@playwright/test';
@@ -65,7 +79,7 @@ export default defineConfig({
         browserName: ${JSON.stringify(browser)},
         baseURL: ${JSON.stringify(options.baseURL)},
         viewport: { width: ${width}, height: ${height} },
-        deviceScaleFactor: ${deviceScaleFactor},${extraUse}
+        deviceScaleFactor: ${deviceScaleFactor},${extraUse}${launchOptionsField}
         video: 'off',
         trace: 'off',
       },
@@ -79,7 +93,10 @@ export async function record(demoName: string, options: RecordOptions): Promise<
   const argoDir = path.join('.argo', options.argoSubdir ?? demoName);
   mkdirSync(argoDir, { recursive: true });
 
-  const videoPath = path.join(argoDir, 'video.webm');
+  // jpeg-stitch produces an H.264 intermediate (libx264 isn't valid in webm).
+  // Use .mp4 there so the final export pipeline reads the right container.
+  const videoExt = options.captureMode === 'jpeg-stitch' ? '.mp4' : '.webm';
+  const videoPath = path.join(argoDir, `video${videoExt}`);
   const timingPath = path.join(argoDir, '.timing.json');
   const testResultsDir = path.resolve('test-results');
   const recordConfigPath = path.join(argoDir, 'playwright.record.config.mjs');
@@ -147,6 +164,17 @@ export async function record(demoName: string, options: RecordOptions): Promise<
       const thumbsDir = path.resolve(path.join(argoDir, 'thumbs'));
       mkdirSync(thumbsDir, { recursive: true });
 
+      // jpeg-stitch mode: every onFrame is persisted as a sequenced JPEG,
+      // then stitched in post by the pipeline. Cleared at start of each run
+      // so the sequence numbers always reflect the current recording.
+      const useJpegStitch = options.captureMode === 'jpeg-stitch';
+      const framesDir = useJpegStitch ? path.resolve(path.join(argoDir, 'frames')) : '';
+      if (framesDir) {
+        rmSync(framesDir, { recursive: true, force: true });
+        mkdirSync(framesDir, { recursive: true });
+      }
+      const jpegQuality = String(options.jpegQuality ?? 95);
+
       execFile('npx', ['playwright', 'test', '--config', recordConfigPath, '--grep', demoName, '--project', 'demos'], {
         env: {
           ...process.env,
@@ -160,6 +188,8 @@ export async function record(demoName: string, options: RecordOptions): Promise<
           ARGO_SCENE_THUMBS: sceneThumbsEnv,
           ARGO_THUMBS_DIR: thumbsDir,
           ARGO_LIVE_FRAME_PATH: path.resolve(path.join(argoDir, '.live-frame.jpg')),
+          ARGO_FRAMES_DIR: framesDir,
+          ARGO_JPEG_QUALITY: jpegQuality,
           BASE_URL: options.baseURL,
           ARGO_ASSET_URL: assetServer?.url ?? '',
           ARGO_AUTO_BACKGROUND: options.autoBackground ? '1' : '',

@@ -43,12 +43,15 @@ export function getVideoFrameRate(videoPath: string): number {
     );
   }
 
-  if (!raw || raw === '0/0') {
+  // ffprobe 8.x CSV output sometimes appends a trailing comma after the only
+  // requested field — strip it before parsing so we don't reject "30/1,".
+  const cleaned = raw.replace(/,+$/, '');
+  if (!cleaned || cleaned === '0/0') {
     throw new Error(`ffprobe returned invalid frame rate "${raw}" for ${videoPath}.`);
   }
 
-  const match = raw.match(/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
-  const fps = match ? Number(match[1]) / Number(match[2]) : Number(raw);
+  const match = cleaned.match(/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
+  const fps = match ? Number(match[1]) / Number(match[2]) : Number(cleaned);
   if (!Number.isFinite(fps) || fps <= 0) {
     throw new Error(`ffprobe returned invalid frame rate "${raw}" for ${videoPath}.`);
   }

@@ -105,18 +105,37 @@ export class NarrationTimeline {
       }
     }
 
-    // Wire the JPEG frame stream when either feature is requested:
+    // Wire the JPEG frame stream when any feature is requested:
     //  - ARGO_LIVE_FRAME_PATH: dashboard / preview live thumbnail
     //  - ARGO_SCENE_THUMBS=1 + ARGO_THUMBS_DIR: per-scene scrubber JPEGs
+    //  - ARGO_FRAMES_DIR: jpeg-stitch capture mode (every frame is persisted)
     const liveFramePath = process.env.ARGO_LIVE_FRAME_PATH || '';
     const thumbsDir = process.env.ARGO_SCENE_THUMBS === '0' ? '' : (process.env.ARGO_THUMBS_DIR || '');
+    const framesDir = process.env.ARGO_FRAMES_DIR || '';
+
+    // Frame sequence + timestamp tracking for jpeg-stitch. The stitcher reads
+    // these to build an ffmpeg concat list with accurate per-frame durations.
+    let frameIdx = 0;
+    const frameLogPath = framesDir ? join(framesDir, 'frames.jsonl') : '';
+    const recordingStart = Date.now();
+
     let onFrame: ((frame: { data: Buffer }) => void) | undefined;
-    if (liveFramePath || thumbsDir) {
+    if (liveFramePath || thumbsDir || framesDir) {
       onFrame = ({ data }) => {
         // Best-effort writes — frame stream is high frequency, ignore EAGAIN-style
         // races with readers. JPEG decoders gracefully fail on partial reads.
         if (liveFramePath) {
           try { writeFileSync(liveFramePath, data); } catch { /* ignore */ }
+        }
+        if (framesDir) {
+          const ms = Date.now() - recordingStart;
+          const idx = frameIdx++;
+          // 6-digit zero-padded — supports up to 999,999 frames (~9 hours at 30fps)
+          const seq = String(idx).padStart(6, '0');
+          try {
+            writeFileSync(join(framesDir, `${seq}.jpg`), data);
+            appendFileSync(frameLogPath, JSON.stringify({ idx, ms, bytes: data.length }) + '\n');
+          } catch { /* ignore */ }
         }
         if (thumbsDir && this._pendingThumbScene) {
           const scene = this._pendingThumbScene;
@@ -126,7 +145,15 @@ export class NarrationTimeline {
       };
     }
 
-    await page.screencast.start({ path: screencastPath, size, quality: options.quality, onFrame });
+    // Honor ARGO_JPEG_QUALITY for jpeg-stitch mode; caller `options.quality` wins.
+    const envQuality = Number(process.env.ARGO_JPEG_QUALITY);
+    const quality = options.quality
+      ?? (Number.isFinite(envQuality) && envQuality > 0 ? envQuality : undefined);
+
+    // In jpeg-stitch mode we don't need the engine's WebM — the stitcher builds
+    // the canonical video from the JPEG sequence. But pass the path anyway so
+    // the engine fails fast on misconfig (and gives us a fallback to compare).
+    await page.screencast.start({ path: screencastPath, size, quality, onFrame });
     this._screencastStop = () => page.screencast.stop();
 
     // Optional auto-annotation of every Playwright interaction.
