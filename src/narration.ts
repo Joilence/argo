@@ -1,6 +1,8 @@
+import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import type { Writable } from 'node:stream';
 import { schedulePlacements, type Placement } from './tts/align.js';
 import type { CameraMove } from './camera-move.js';
 
@@ -60,6 +62,7 @@ export class NarrationTimeline {
   private _cursorTelemetry: CursorSample[] = [];
   private _fallbackWarned = false;
   private _screencastStop: (() => Promise<void>) | null = null;
+  private _streamCleanup: (() => Promise<void>) | null = null;
   private _pendingThumbScene: string | null = null;
 
   constructor(sceneDurations?: Record<string, number>) {
@@ -108,34 +111,92 @@ export class NarrationTimeline {
     // Wire the JPEG frame stream when any feature is requested:
     //  - ARGO_LIVE_FRAME_PATH: dashboard / preview live thumbnail
     //  - ARGO_SCENE_THUMBS=1 + ARGO_THUMBS_DIR: per-scene scrubber JPEGs
-    //  - ARGO_FRAMES_DIR: jpeg-stitch capture mode (every frame is persisted)
+    //  - ARGO_STREAM_OUT: stream-encode mode — pipe JPEGs directly to ffmpeg
+    //    instead of letting Playwright's hardcoded VP8 encoder touch them.
+    //    Output is libx264 ultrafast near-lossless mp4; the export pipeline's
+    //    second-pass encode handles final quality. This bypasses VP8's tight
+    //    bitrate cap (microsoft/playwright#8683 etc.) which causes watercolor
+    //    quantization on dark backgrounds at 4K source.
     const liveFramePath = process.env.ARGO_LIVE_FRAME_PATH || '';
     const thumbsDir = process.env.ARGO_SCENE_THUMBS === '0' ? '' : (process.env.ARGO_THUMBS_DIR || '');
-    const framesDir = process.env.ARGO_FRAMES_DIR || '';
+    const streamOut = process.env.ARGO_STREAM_OUT || '';
+    const streamFps = Number(process.env.ARGO_FPS) || 30;
 
-    // Frame sequence + timestamp tracking for jpeg-stitch. The stitcher reads
-    // these to build an ffmpeg concat list with accurate per-frame durations.
-    let frameIdx = 0;
-    const frameLogPath = framesDir ? join(framesDir, 'frames.jsonl') : '';
+    // Set up the ffmpeg child for stream-encode mode.
+    let ffmpegProc: ChildProcessByStdio<Writable, null, null> | null = null;
+    let writeChain: Promise<void> = Promise.resolve();
+    let lastJpeg: Buffer | null = null;
+    let lastFrameNumber = -1;
     const recordingStart = Date.now();
 
+    if (streamOut) {
+      // libx264 ultrafast: must outpace 4K@30fps in realtime. Slower presets
+      // create stdin backpressure that travels back through CDP and starves
+      // frames. Final quality comes from the export's second-pass re-encode.
+      ffmpegProc = spawn('ffmpeg', [
+        '-y',
+        '-f', 'image2pipe',
+        '-r', String(streamFps),
+        '-i', '-',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-crf', '12',
+        '-pix_fmt', 'yuv420p',
+        streamOut,
+      ], { stdio: ['pipe', 'ignore', 'ignore'] });
+
+      ffmpegProc.on('error', (err) => {
+        console.warn(`Warning: stream-encode ffmpeg error: ${err.message}`);
+      });
+      ffmpegProc.on('exit', (code, signal) => {
+        if (code !== 0 && code !== null) {
+          console.warn(`Warning: stream-encode ffmpeg exited with code ${code}${signal ? ` (signal ${signal})` : ''}`);
+        }
+      });
+    }
+
+    // Serialize stdin writes through a promise chain that respects backpressure
+    // (drain before continuing). Without this, JPEGs can buffer unboundedly in
+    // node memory if libx264 falls behind.
+    const writeFrame = (data: Buffer): void => {
+      const stdin = ffmpegProc?.stdin;
+      if (!stdin || stdin.destroyed) return;
+      writeChain = writeChain.then(() => new Promise<void>((resolve) => {
+        const ok = stdin.write(data, (err) => {
+          if (err && !stdin.destroyed) console.warn(`Warning: stream-encode write: ${err.message}`);
+        });
+        if (ok) resolve();
+        else stdin.once('drain', () => resolve());
+      }));
+    };
+
+    // CDP delivers screencast frames only when the page changes — a static
+    // page yields zero frames. To keep wall-clock and video time in lockstep,
+    // we gap-fill: at each onFrame, compute the target frame number from
+    // elapsed wall time and repeat the last JPEG to cover any missed slots.
+    // libx264 compresses identical frames cheaply (B/P at zero motion).
+    const fillGapTo = (targetFrame: number): void => {
+      while (lastFrameNumber + 1 < targetFrame) {
+        if (lastJpeg) writeFrame(lastJpeg);
+        lastFrameNumber++;
+      }
+    };
+
     let onFrame: ((frame: { data: Buffer }) => void) | undefined;
-    if (liveFramePath || thumbsDir || framesDir) {
+    if (liveFramePath || thumbsDir || streamOut) {
       onFrame = ({ data }) => {
         // Best-effort writes — frame stream is high frequency, ignore EAGAIN-style
         // races with readers. JPEG decoders gracefully fail on partial reads.
         if (liveFramePath) {
           try { writeFileSync(liveFramePath, data); } catch { /* ignore */ }
         }
-        if (framesDir) {
-          const ms = Date.now() - recordingStart;
-          const idx = frameIdx++;
-          // 6-digit zero-padded — supports up to 999,999 frames (~9 hours at 30fps)
-          const seq = String(idx).padStart(6, '0');
-          try {
-            writeFileSync(join(framesDir, `${seq}.jpg`), data);
-            appendFileSync(frameLogPath, JSON.stringify({ idx, ms, bytes: data.length }) + '\n');
-          } catch { /* ignore */ }
+        if (streamOut) {
+          const elapsed = Date.now() - recordingStart;
+          const targetFrame = Math.floor(elapsed * streamFps / 1000);
+          fillGapTo(targetFrame);
+          writeFrame(data);
+          lastJpeg = data;
+          lastFrameNumber = targetFrame;
         }
         if (thumbsDir && this._pendingThumbScene) {
           const scene = this._pendingThumbScene;
@@ -145,16 +206,35 @@ export class NarrationTimeline {
       };
     }
 
-    // Honor ARGO_JPEG_QUALITY for jpeg-stitch mode; caller `options.quality` wins.
+    // Honor ARGO_JPEG_QUALITY for stream-encode mode; caller `options.quality` wins.
     const envQuality = Number(process.env.ARGO_JPEG_QUALITY);
     const quality = options.quality
       ?? (Number.isFinite(envQuality) && envQuality > 0 ? envQuality : undefined);
 
-    // In jpeg-stitch mode we don't need the engine's WebM — the stitcher builds
-    // the canonical video from the JPEG sequence. But pass the path anyway so
-    // the engine fails fast on misconfig (and gives us a fallback to compare).
+    // Playwright's screencast still demands a `path` for its WebM writer even
+    // when we ignore that output entirely (stream-encode mode). Pass the path
+    // through; for jpeg-stitch users it's a discardable temp file.
     await page.screencast.start({ path: screencastPath, size, quality, onFrame });
     this._screencastStop = () => page.screencast.stop();
+
+    // Cleanup hook for stream-encode mode — pads to wall-clock, ends stdin,
+    // waits for ffmpeg to flush. Called from _closeRecording().
+    if (streamOut && ffmpegProc) {
+      const proc = ffmpegProc;
+      this._streamCleanup = async () => {
+        // Pad final frames so the mp4 duration matches actual recording length
+        // (idle pages can leave a multi-second tail with no CDP frames).
+        const elapsed = Date.now() - recordingStart;
+        const targetFrame = Math.floor(elapsed * streamFps / 1000);
+        fillGapTo(targetFrame);
+        await writeChain;
+        if (proc.stdin && !proc.stdin.destroyed) proc.stdin.end();
+        await new Promise<void>((resolve) => {
+          if (proc.exitCode !== null) resolve();
+          else proc.once('close', () => resolve());
+        });
+      };
+    }
 
     // Optional auto-annotation of every Playwright interaction.
     const showActionsEnv = process.env.ARGO_SHOW_ACTIONS;
@@ -183,10 +263,23 @@ export class NarrationTimeline {
     const stop = this._screencastStop;
     if (!stop) return;
     this._screencastStop = null;
+    const cleanup = this._streamCleanup;
+    this._streamCleanup = null;
+
+    // Stop CDP screencast first so no more frames arrive after we've sealed
+    // the stream-encode pipeline. Then pad/flush ffmpeg and wait for it to
+    // close — order matters: we want the full set of CDP frames in the mp4.
     try {
       await stop();
     } catch (err) {
       console.warn(`Warning: failed to stop screencast: ${(err as Error).message}`);
+    }
+    if (cleanup) {
+      try {
+        await cleanup();
+      } catch (err) {
+        console.warn(`Warning: failed to finalize stream-encode: ${(err as Error).message}`);
+      }
     }
   }
 

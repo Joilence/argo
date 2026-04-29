@@ -8,7 +8,7 @@ import { normalizeDeviceScaleFactor, type BrowserEngine, type ShowActionsConfig 
 export interface RecordOptions {
   demosDir: string;
   baseURL: string;
-  video: { width: number; height: number };
+  video: { width: number; height: number; fps?: number };
   browser?: BrowserEngine;
   deviceScaleFactor?: number;
   isMobile?: boolean;
@@ -93,10 +93,18 @@ export async function record(demoName: string, options: RecordOptions): Promise<
   const argoDir = path.join('.argo', options.argoSubdir ?? demoName);
   mkdirSync(argoDir, { recursive: true });
 
-  // jpeg-stitch produces an H.264 intermediate (libx264 isn't valid in webm).
-  // Use .mp4 there so the final export pipeline reads the right container.
-  const videoExt = options.captureMode === 'jpeg-stitch' ? '.mp4' : '.webm';
+  // jpeg-stitch (stream-encode) produces an H.264 mp4 directly — JPEG frames
+  // are piped to ffmpeg child in narration.startRecording, bypassing
+  // Playwright's hardcoded VP8 encoder. Default mode keeps Playwright's WebM.
+  const useJpegStitch = options.captureMode === 'jpeg-stitch';
+  const videoExt = useJpegStitch ? '.mp4' : '.webm';
   const videoPath = path.join(argoDir, `video${videoExt}`);
+  // Playwright's screencast.start still requires a `path` even when we ignore
+  // its WebM output (we feed JPEGs to our own ffmpeg via onFrame). Route it to
+  // a discardable sidecar so it doesn't clobber our streamed mp4.
+  const enginePath = useJpegStitch
+    ? path.join(argoDir, '.engine-discard.webm')
+    : videoPath;
   const timingPath = path.join(argoDir, '.timing.json');
   const testResultsDir = path.resolve('test-results');
   const recordConfigPath = path.join(argoDir, 'playwright.record.config.mjs');
@@ -164,15 +172,11 @@ export async function record(demoName: string, options: RecordOptions): Promise<
       const thumbsDir = path.resolve(path.join(argoDir, 'thumbs'));
       mkdirSync(thumbsDir, { recursive: true });
 
-      // jpeg-stitch mode: every onFrame is persisted as a sequenced JPEG,
-      // then stitched in post by the pipeline. Cleared at start of each run
-      // so the sequence numbers always reflect the current recording.
-      const useJpegStitch = options.captureMode === 'jpeg-stitch';
-      const framesDir = useJpegStitch ? path.resolve(path.join(argoDir, 'frames')) : '';
-      if (framesDir) {
-        rmSync(framesDir, { recursive: true, force: true });
-        mkdirSync(framesDir, { recursive: true });
-      }
+      // jpeg-stitch (stream-encode) mode: narration.startRecording spawns an
+      // ffmpeg child and pipes JPEGs from `onFrame` directly into it. ARGO_STREAM_OUT
+      // is the mp4 path that ffmpeg writes; ARGO_FPS sets the input cadence (frame
+      // gaps in CDP get padded with frame duplicates to match wallclock).
+      const streamOutPath = useJpegStitch ? path.resolve(videoPath) : '';
       const jpegQuality = String(options.jpegQuality ?? 95);
 
       execFile('npx', ['playwright', 'test', '--config', recordConfigPath, '--grep', demoName, '--project', 'demos'], {
@@ -181,14 +185,15 @@ export async function record(demoName: string, options: RecordOptions): Promise<
           ARGO_DEMO_NAME: demoName,
           ARGO_OUTPUT_DIR: path.resolve(argoDir),
           ARGO_PROGRESS_PATH: progressPath,
-          ARGO_SCREENCAST_PATH: path.resolve(videoPath),
+          ARGO_SCREENCAST_PATH: path.resolve(enginePath),
           ARGO_SCREENCAST_WIDTH: String(options.video.width * normalizeDeviceScaleFactor(options.deviceScaleFactor)),
           ARGO_SCREENCAST_HEIGHT: String(options.video.height * normalizeDeviceScaleFactor(options.deviceScaleFactor)),
           ARGO_SHOW_ACTIONS: showActionsEnv,
           ARGO_SCENE_THUMBS: sceneThumbsEnv,
           ARGO_THUMBS_DIR: thumbsDir,
           ARGO_LIVE_FRAME_PATH: path.resolve(path.join(argoDir, '.live-frame.jpg')),
-          ARGO_FRAMES_DIR: framesDir,
+          ARGO_STREAM_OUT: streamOutPath,
+          ARGO_FPS: String(options.video.fps ?? 30),
           ARGO_JPEG_QUALITY: jpegQuality,
           BASE_URL: options.baseURL,
           ARGO_ASSET_URL: assetServer?.url ?? '',
@@ -228,6 +233,13 @@ export async function record(demoName: string, options: RecordOptions): Promise<
             `Ensure the demo uses the argo test fixture with narration.mark() calls.`
           ));
           return;
+        }
+
+        // Clean up the engine's discardable WebM in stream-encode mode.
+        // Playwright requires a path for screencast.start, but we ignore that
+        // output entirely (frames go straight to our ffmpeg child via onFrame).
+        if (useJpegStitch && existsSync(enginePath)) {
+          try { rmSync(enginePath); } catch { /* best-effort */ }
         }
 
         resolve({ videoPath, timingPath });

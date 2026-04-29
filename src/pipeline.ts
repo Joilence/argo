@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
-import path, { join, basename } from 'node:path';
+import { join, basename } from 'node:path';
 import { generateClips } from './tts/generate.js';
 import { record } from './record.js';
 import { alignClips, type ClipInfo, type SceneTiming } from './tts/align.js';
@@ -125,17 +125,15 @@ export async function runPipeline(
   // Users generate + audition clips in the browser (WebGPU), then save
   // the selected WAV. Pipeline uses the saved file via audio.music.
 
-  // Step 2: Record browser demo
+  // Step 2: Record browser demo. When captureMode is 'jpeg-stitch', the recorder
+  // (narration.startRecording) spawns an ffmpeg child and streams JPEGs from the
+  // CDP screencast directly into libx264 — no separate stitch step is needed; the
+  // mp4 lands inline at .argo/<demo>/video.mp4. Avoids Playwright's hardcoded VP8.
   console.log('🎬 Rolling camera...');
-  console.log('   [debug] config.video:', JSON.stringify({
-    captureMode: config.video.captureMode,
-    jpegQuality: config.video.jpegQuality,
-    browser: config.video.browser,
-  }));
   const { timingPath, videoPath } = await record(demoName, {
     demosDir: config.demosDir,
     baseURL: config.baseURL,
-    video: { width: config.video.width, height: config.video.height },
+    video: { width: config.video.width, height: config.video.height, fps: config.video.fps },
     browser: config.video.browser,
     deviceScaleFactor: config.video.deviceScaleFactor,
     isMobile: config.video.isMobile,
@@ -150,21 +148,6 @@ export async function runPipeline(
     jpegQuality: config.video.jpegQuality,
     headed: pipelineOpts?.headed,
   });
-
-  // Step 2b: jpeg-stitch — replace the engine WebM with one built from the
-  // captured JPEG sequence. Higher per-frame quality than VP8/chromium and
-  // independent of the engine's screencast encoder.
-  if (config.video.captureMode === 'jpeg-stitch') {
-    const { stitchJpegFrames } = await import('./jpeg-stitch.js');
-    const argoDir = path.dirname(videoPath);
-    const framesDir = path.join(argoDir, 'frames');
-    console.log('🧵 Stitching JPEG frames...');
-    const result = await stitchJpegFrames({ framesDir, outputPath: videoPath, fps: config.video.fps });
-    console.log(
-      `   ${result.frameCount} frames → ${result.durationSec.toFixed(1)}s ` +
-      `(intermediate: ${(result.intermediateBytes / 1024 / 1024).toFixed(0)} MB)`
-    );
-  }
 
   // Step 3: Align clips with timing
   let timing: SceneTiming;
@@ -459,7 +442,7 @@ export async function runPipeline(
       const variantRecord = await record(demoName, {
         demosDir: config.demosDir,
         baseURL: config.baseURL,
-        video: { width: variant.video.width, height: variant.video.height },
+        video: { width: variant.video.width, height: variant.video.height, fps: config.video.fps },
         browser: config.video.browser,
         deviceScaleFactor: config.video.deviceScaleFactor,
         isMobile: config.video.isMobile,
@@ -470,13 +453,15 @@ export async function runPipeline(
         allowRawGsap: config.overlays.allowRawGsap,
         showActions: config.video.showActions,
         sceneThumbnails: config.video.sceneThumbnails,
+        captureMode: config.video.captureMode,
+        jpegQuality: config.video.jpegQuality,
         headed: pipelineOpts?.headed,
         argoSubdir: variantSubdir,
       });
 
       // Align with shared TTS clips
       const variantTiming: SceneTiming = JSON.parse(readFileSync(variantRecord.timingPath, 'utf-8'));
-      const variantVideoPath = join('.argo', variantSubdir, 'video.webm');
+      const variantVideoPath = variantRecord.videoPath;
       const variantDurationMs = getVideoDurationMs(variantVideoPath);
       const variantHeadTrimMs = computeHeadTrimMs(variantTiming);
 
