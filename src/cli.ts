@@ -101,6 +101,8 @@ export function createProgram(): Command {
         contextOptions: config.video.contextOptions,
         autoBackground: config.overlays?.autoBackground,
         defaultPlacement: config.overlays?.defaultPlacement,
+        showActions: config.video.showActions,
+        sceneThumbnails: config.video.sceneThumbnails,
         headed: cmdOpts.headed,
       });
     });
