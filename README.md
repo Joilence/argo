@@ -1,7 +1,3 @@
-
-
-https://github.com/user-attachments/assets/f489e285-2817-4489-8e88-5d0a2204f0c0
-
 ```
                                      ___
         _____                       /  /
@@ -23,7 +19,7 @@ Write a demo script with Playwright. Add a scenes manifest. Run one command. Get
 
 ## Showcase
 
-[Watch the demo video](https://github.com/user-attachments/assets/99ead3c0-29d0-419c-a3ba-24ddb538f4cf)
+[Watch the demo video](https://github.com/user-attachments/assets/7693c67c-8850-4f57-a15c-47cfbfd3d180)
 
 > *This demo was recorded by Argo, using Argo. Yes, really.*
 
