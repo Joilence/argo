@@ -163,6 +163,14 @@ export interface ExportConfig {
    * `true` uses default intensity (0.5). Pass `{ intensity: 0.0-1.0 }` to tune.
    * Only takes effect when cameraMoves are present. */
   motionBlur?: boolean | { intensity: number };
+  /** Final-encode preference. `'cpu'` uses libx264 (slower but cleaner dark
+   * regions via `aq-mode=3`); `'gpu'` uses the platform's hardware encoder
+   * (faster but videotoolbox in particular can introduce watercolor banding).
+   *
+   * Defaults: `argo pipeline` and `argo export` default to `'cpu'` for max
+   * quality on a one-shot run; `argo preview`'s re-export defaults to `'gpu'`
+   * for fast iteration. The `ARGO_USE_GPU` env var still wins as an override. */
+  encoder?: 'cpu' | 'gpu';
 }
 
 export interface OverlayConfig {

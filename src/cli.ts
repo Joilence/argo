@@ -301,6 +301,8 @@ export function createProgram(): Command {
         freezeSpecs: resolvedFreezes.length > 0 ? resolvedFreezes : undefined,
         overlayPngs,
         shaderTransitions,
+        encoder: config.export.encoder,
+        encoderDefault: 'cpu',
       });
     });
 

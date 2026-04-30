@@ -48,6 +48,7 @@ export interface PreviewExportConfig {
   sharpen?: boolean | { strength: number };
   frame?: import('./config.js').FrameConfig;
   motionBlur?: boolean | { intensity: number };
+  encoder?: 'cpu' | 'gpu';
 }
 
 export interface PreviewOptions {
@@ -1115,6 +1116,8 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             freezeSpecs: previewResolvedFreezes.length > 0 ? previewResolvedFreezes : undefined,
             overlayPngs,
             shaderTransitions: previewShaderTransitions,
+            encoder: ec?.encoder,
+            encoderDefault: 'gpu',
           });
 
           // Switch to serving the new MP4

@@ -20,14 +20,14 @@ describe('buildFrameFilter', () => {
     expect(result!.inputArgs).toEqual([]);
 
     const fc = result!.filterParts.join(';\n');
-    // Should scale inner video
-    expect(fc).toContain('scale=1840:1000:flags=lanczos');
-    expect(fc).toContain('force_original_aspect_ratio=decrease:force_divisible_by=2');
+    // Source 1920×1080 (16:9) fit inside padded box (1840×1000, wider than 16:9)
+    // → height-limited: fitH=1000, fitW=1000*16/9=1778 (rounded to even)
+    expect(fc).toContain('scale=1778:1000:flags=lanczos,setsar=1');
     // Should apply rounded corners
     expect(fc).toContain('format=yuva444p');
     expect(fc).toContain('geq=');
     expect(fc).toContain("if(lte(min(");
-    expect(fc).not.toContain('pad=1840:1000');
+    expect(fc).not.toContain('pad=1778:1000');
     // Should create solid black background
     expect(fc).toContain('color=c=#000000:s=1920x1080:d=1,loop=-1:1:0');
     // Should have shadow (default 0.5)
@@ -72,10 +72,11 @@ describe('buildFrameFilter', () => {
     const result = buildFrameFilter('0:v', 1920, 1080, { padding: 80 }, 2);
     expect(result).not.toBeNull();
     const fc = result!.filterParts.join(';\n');
-    // Inner dimensions: 1920 - 160 = 1760, 1080 - 160 = 920
-    expect(fc).toContain('scale=1760:920:flags=lanczos');
+    // Padded box: 1920-160=1760, 1080-160=920 (wider than 16:9). Fit 16:9
+    // inside → height-limited: fitH=920, fitW=round(920*16/9)=1636 (already even).
+    expect(fc).toContain('scale=1636:920:flags=lanczos,setsar=1');
     expect(fc).toContain('overlay=(W-w)/2:(H-h)/2:format=auto:shortest=1[frm_out]');
-    expect(fc).not.toContain('pad=1760:920');
+    expect(fc).not.toContain('pad=1636:920');
   });
 
   it('uses solid color background', () => {

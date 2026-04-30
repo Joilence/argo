@@ -330,6 +330,8 @@ export async function runPipeline(
     frame: config.export.frame,
     motionBlur: config.export.motionBlur,
     overlayPngs,
+    encoder: config.export.encoder,
+    encoderDefault: 'cpu',
   };
 
   // Pre-render frame PNG for faster encoding
@@ -594,6 +596,8 @@ export async function runPipeline(
         freezeSpecs: variantResolvedFreezes.length > 0 ? variantResolvedFreezes : undefined,
         overlayPngs: variantOverlayPngs,
         shaderTransitions: variantShaderTransitions,
+        encoder: config.export.encoder,
+        encoderDefault: 'cpu',
       });
 
       console.log(`🚀 Variant saved to: ${variantOutputPath}`);

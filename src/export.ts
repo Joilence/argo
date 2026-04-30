@@ -12,7 +12,7 @@ import { buildFreezeFilter, type ResolvedFreeze } from './freeze.js';
 import { getVideoFrameRate } from './media.js';
 import { buildOverlayPngFilters, isImportedVideo, type RenderedOverlayPng } from './overlays/render-to-png.js';
 import { buildFrameFilter } from './frame.js';
-import { detectGpuEncoder, getGpuEncoderName, isGpuEncodingEnabled, type GpuEncoder } from './gpu-encoder.js';
+import { getGpuEncoderName, resolveEncoder, type GpuEncoder } from './gpu-encoder.js';
 
 export interface ExportOptions {
   demoName: string;
@@ -70,6 +70,14 @@ export interface ExportOptions {
   motionBlur?: boolean | { intensity: number };
   /** Pre-rendered shader transitions — paths to PNG sequence dirs per boundary. */
   shaderTransitions?: Array<{ boundarySec: number; durationMs: number; pngDir: string; frameCount: number }>;
+  /** Encoder preference for the final mux step. `'cpu'` → libx264 (slower,
+   * cleaner dark regions); `'gpu'` → platform GPU encoder (faster, more
+   * banding on videotoolbox). When unset, the caller's default applies
+   * (pipeline/cli pass 'cpu'; preview re-export passes 'gpu'). The
+   * `ARGO_USE_GPU` env var still wins as an override. */
+  encoder?: 'cpu' | 'gpu';
+  /** Default encoder preference if `encoder` is unset. Set by callers. */
+  encoderDefault?: 'cpu' | 'gpu';
 }
 
 function formatSeconds(ms: number): string {
@@ -205,7 +213,7 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   const headTrimSec = headTrimMs > 0 ? (headTrimMs / 1000).toFixed(3) : '';
 
   // GPU encoder detection — done before args construction so VAAPI can insert device flag
-  const gpuEncoder: GpuEncoder = isGpuEncodingEnabled() ? await detectGpuEncoder() : null;
+  const gpuEncoder: GpuEncoder = await resolveEncoder(options.encoder, options.encoderDefault ?? 'cpu');
   const codecName = getGpuEncoderName(gpuEncoder, 'h264');
 
   const args: string[] = [];
