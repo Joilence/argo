@@ -63,9 +63,26 @@ export function getGpuEncoderName(encoder: GpuEncoder, codec: 'h264'): string {
   }
 }
 
+export type EncoderPreference = 'cpu' | 'gpu';
+
+/**
+ * Read `ARGO_USE_GPU` as a forced preference. Returns `undefined` when the
+ * var is unset (caller-supplied preference applies). Recognized values:
+ *   - `'0'` / `'false'` → forced CPU
+ *   - `'1'` / `'true'`  → forced GPU
+ *   - anything else (incl. unset) → undefined (no override)
+ */
+function envEncoderOverride(): EncoderPreference | undefined {
+  const v = process.env.ARGO_USE_GPU;
+  if (v === '0' || v === 'false') return 'cpu';
+  if (v === '1' || v === 'true') return 'gpu';
+  return undefined;
+}
+
 /**
  * Whether GPU encoding is enabled for this process.
- * Controlled by `ARGO_USE_GPU` env var: unset/`'1'` → enabled, `'0'` → disabled.
+ * Controlled by `ARGO_USE_GPU` env var: unset/`'1'`/`'true'` → enabled,
+ * any other value → disabled.
  *
  * Prefer `resolveEncoder()` for new code — it accepts an explicit caller
  * preference so paths like `argo pipeline` (quality-first) and `argo preview`
@@ -75,8 +92,6 @@ export function isGpuEncodingEnabled(): boolean {
   const v = process.env.ARGO_USE_GPU;
   return v === undefined || v === '1' || v === 'true';
 }
-
-export type EncoderPreference = 'cpu' | 'gpu';
 
 /**
  * Resolve the encoder to use for a given export call.
@@ -99,12 +114,7 @@ export async function resolveEncoder(
   preference: EncoderPreference | undefined,
   defaultPreference: EncoderPreference,
 ): Promise<GpuEncoder> {
-  const env = process.env.ARGO_USE_GPU;
-  let chosen: EncoderPreference;
-  if (env === '0' || env === 'false') chosen = 'cpu';
-  else if (env === '1' || env === 'true') chosen = 'gpu';
-  else chosen = preference ?? defaultPreference;
-
+  const chosen = envEncoderOverride() ?? preference ?? defaultPreference;
   if (chosen === 'cpu') return null;
   return await detectGpuEncoder();
 }

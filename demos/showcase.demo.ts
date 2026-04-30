@@ -9,11 +9,29 @@
  *   2. Run pipeline:    npx tsx bin/argo.js pipeline showcase --config demos/showcase.config.mjs
  *   3. Optional clips:  npx argo release-prep showcase --gif
  */
+import type { Page } from '@playwright/test';
 import { test, demoType } from '@argo-video/cli';
 import { showOverlay, withOverlay, showConfetti } from '@argo-video/cli';
 import { spotlight, focusRing, dimAround, zoomTo, resetCamera } from '@argo-video/cli';
 import { cursorHighlight, resetCursor } from '@argo-video/cli';
 import { trackCursor } from '@argo-video/cli';
+
+/**
+ * Scroll a section into view, hold briefly so the new content visually settles,
+ * then anchor the next narration scene at this moment. Mark()-ing before the
+ * scroll lands gives 300–800ms of perceived audio lag.
+ */
+async function enterScene(
+  page: Page,
+  narration: { mark: (name: string) => void },
+  selector: string,
+  scene: string,
+  holdMs = 400,
+): Promise<void> {
+  await page.locator(selector).scrollIntoViewIfNeeded();
+  if (holdMs > 0) await page.waitForTimeout(holdMs);
+  narration.mark(scene);
+}
 
 test('showcase', async ({ page, narration }) => {
   test.setTimeout(300_000);
@@ -31,12 +49,10 @@ test('showcase', async ({ page, narration }) => {
   spotlight(page, '#hero-command', { duration: 4800, padding: 18 });
   await showOverlay(page, 'hero', narration.durationFor('hero', { maxMs: 7800 }));
 
-  // Scroll FIRST so the new section is visible before audio starts. Without this
-  // reorder, mark() fires immediately and the audio for the new scene begins
-  // while the page is still mid-transition, giving 300–800ms of perceived lag.
-  await page.locator('#authoring').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
-  narration.mark('authoring');
+  // enterScene scrolls + settles + marks together so audio for the new scene
+  // starts only once the new section is visible (otherwise mark() fires
+  // immediately and audio leads the visuals by 300–800ms).
+  await enterScene(page, narration, '#authoring', 'authoring');
   await withOverlay(page, 'authoring', async () => {
     const totalMs = narration.durationFor('authoring', { maxMs: 9200 }) - 400;
     const beat = Math.floor(totalMs / 5);
@@ -47,9 +63,7 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#authoring-duration', { color: '#f59e0b', duration: beat, wait: true });
   });
 
-  await page.locator('#voiceover').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
-  narration.mark('voiceover');
+  await enterScene(page, narration, '#voiceover', 'voiceover');
   await withOverlay(page, 'voiceover', async () => {
     const totalMs = narration.durationFor('voiceover', { maxMs: 10000 }) - 400;
     const beat = Math.floor(totalMs / 8);
@@ -64,9 +78,7 @@ test('showcase', async ({ page, narration }) => {
     await resetCamera(page);
   });
 
-  await page.locator('#preview-editor').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
-  narration.mark('preview');
+  await enterScene(page, narration, '#preview-editor', 'preview');
   await withOverlay(page, 'preview', async () => {
     // 6 beats: command, drag, type, scrubber, regen, export
     const totalMs = narration.durationFor('preview', { maxMs: 9000 }) - 400;
@@ -80,9 +92,7 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#preview-export', { color: '#4ade80', duration: beat, wait: true });
   });
 
-  await page.locator('#camera-effects').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
-  narration.mark('camera');
+  await enterScene(page, narration, '#camera-effects', 'camera');
   // Total scene time = durationFor. Divide evenly across 6 effects.
   // Each beat includes the effect duration + a small gap.
   const totalCameraMs = narration.durationFor('camera', { maxMs: 10000 });
@@ -105,9 +115,7 @@ test('showcase', async ({ page, narration }) => {
   await page.waitForTimeout(cameraBeat + cameraGap);
   await resetCamera(page);
 
-  await page.locator('#export-stack').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
-  narration.mark('export');
+  await enterScene(page, narration, '#export-stack', 'export');
   await withOverlay(page, 'export', async () => {
     const totalMs = narration.durationFor('export', { maxMs: 9800 }) - 400;
     const beat = Math.floor(totalMs / 7);
@@ -120,9 +128,7 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#export-formats', { color: '#fb7185', duration: beat, wait: true });
   });
 
-  await page.locator('#studio-polish').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
-  narration.mark('studio');
+  await enterScene(page, narration, '#studio-polish', 'studio');
   await withOverlay(page, 'studio', async () => {
     const totalMs = narration.durationFor('studio', { maxMs: 10000 }) - 400;
     // Flash 3 animated blocks in the bottom-left zone so the GSAP loops
@@ -172,9 +178,7 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#polish-arrows', { color: '#fb7185', duration: beat, wait: true });
   });
 
-  await page.locator('#ops').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
-  narration.mark('ops');
+  await enterScene(page, narration, '#ops', 'ops');
   await withOverlay(page, 'ops', async () => {
     const totalMs = narration.durationFor('ops', { maxMs: 8200 }) - 400;
     const beat = Math.floor(totalMs / 4);
@@ -184,20 +188,19 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#ops-doctor', { color: '#4ade80', duration: beat, wait: true });
   });
 
-  await page.locator('#code-example').scrollIntoViewIfNeeded();
-  narration.mark('code');
-  // No post-export zoom on the code script. The earlier zoomTo recorded
+  // No settle hold (holdMs=0) — preserves the original timing where mark()
+  // fires immediately after scrollIntoViewIfNeeded() for this scene.
+  // Also no post-export zoom on the code script: an earlier zoomTo recorded
   // #demo-script-card's bbox before the scroll had visually settled, so the
   // ffmpeg zoompan ended up cropping into the previous (ops) section's
   // content while audio said "Under the hood, it is still Playwright".
   // Letting the natural full-frame recording show through keeps sync.
+  await enterScene(page, narration, '#code-example', 'code', 0);
   await showOverlay(page, 'code', narration.durationFor('code', { maxMs: 7600 }));
 
   // CTA section is min-height: 100vh with flexbox centering,
   // so scrolling it into view naturally fills the viewport.
-  await page.locator('#cta').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(400);
-  narration.mark('closing');
+  await enterScene(page, narration, '#cta', 'closing');
   await page.waitForTimeout(800);
   focusRing(page, '#theme-toggle', { color: '#f59e0b', duration: 1200 });
   await page.waitForTimeout(650);

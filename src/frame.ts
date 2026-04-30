@@ -182,20 +182,16 @@ export function generateFramePng(
 }
 
 /**
- * Build a simple frame filter that overlays the video onto a pre-rendered frame PNG.
- * Much faster than the per-frame geq + boxblur approach.
+ * Resolve the inner fit box and validate inputs shared by both the fast (PNG)
+ * and slow (inline) frame-filter paths. Returns `null` when the frame is
+ * unbuildable (zero/negative padding or an inner box smaller than 1px).
  */
-export function buildFrameFilter(
-  videoSource: string,
+function resolveFrameLayout(
   outputWidth: number,
   outputHeight: number,
-  config: FrameConfig,
-  nextInputIdx: number,
-  framePngPath?: string,
-): FrameFilterResult | null {
-  const padding = config.padding ?? 40;
+  padding: number,
+): { evenInnerW: number; evenInnerH: number } | null {
   if (padding <= 0) return null;
-
   if (outputWidth - 2 * padding <= 0 || outputHeight - 2 * padding <= 0) return null;
 
   // Use a DAR-preserving fit box rather than forcing exact inner dimensions.
@@ -208,7 +204,32 @@ export function buildFrameFilter(
   const { fitW: evenInnerW, fitH: evenInnerH } = computeInnerFitBox(
     outputWidth, outputHeight, padding, sourceDAR,
   );
+  return { evenInnerW, evenInnerH };
+}
 
+/**
+ * Build a simple frame filter that overlays the video onto a pre-rendered frame PNG.
+ * Much faster than the per-frame geq + boxblur approach.
+ */
+export function buildFrameFilter(
+  videoSource: string,
+  outputWidth: number,
+  outputHeight: number,
+  config: FrameConfig,
+  nextInputIdx: number,
+  framePngPath?: string,
+): FrameFilterResult | null {
+  const padding = config.padding ?? 40;
+  const layout = resolveFrameLayout(outputWidth, outputHeight, padding);
+  if (!layout) return null;
+
+  // No PNG available → defer to the inline (slow) path. It re-validates with
+  // the same helper so its preconditions stay self-contained.
+  if (!framePngPath || !existsSync(framePngPath)) {
+    return buildFrameFilterInline(videoSource, outputWidth, outputHeight, config, nextInputIdx);
+  }
+
+  const { evenInnerW, evenInnerH } = layout;
   const filterParts: string[] = [];
   const inputArgs: string[] = [];
   let addedInputs = 0;
@@ -219,27 +240,23 @@ export function buildFrameFilter(
     `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos,setsar=1[frm_scaled]`,
   );
 
-  if (framePngPath && existsSync(framePngPath)) {
-    // Fast path: pad video to full size, overlay frame PNG on top.
-    // The PNG has a transparent hole — video shows through.
-    const pngIdx = nextInputIdx + addedInputs;
-    inputArgs.push('-i', framePngPath);
-    addedInputs++;
+  // Fast path: pad video to full size, overlay frame PNG on top.
+  // The PNG has a transparent hole — video shows through.
+  const pngIdx = nextInputIdx + addedInputs;
+  inputArgs.push('-i', framePngPath);
+  addedInputs++;
 
-    // Pad uses the dominant background color so no black gaps show
-    const bgColor = config.background?.value?.match(/#[0-9a-fA-F]{3,8}/)?.[0] ?? '#000000';
-    filterParts.push(
-      `[frm_scaled]pad=${outputWidth}:${outputHeight}:(ow-iw)/2:(oh-ih)/2:${bgColor}[frm_padded]`,
-    );
-    filterParts.push(
-      `[${pngIdx}:v]loop=-1:1:0,setpts=N/FRAME_RATE/TB[frm_png]`,
-    );
-    filterParts.push(
-      `[frm_padded][frm_png]overlay=0:0:format=auto:shortest=1[frm_out]`,
-    );
-  } else {
-    return buildFrameFilterInline(videoSource, outputWidth, outputHeight, config, nextInputIdx);
-  }
+  // Pad uses the dominant background color so no black gaps show
+  const bgColor = config.background?.value?.match(/#[0-9a-fA-F]{3,8}/)?.[0] ?? '#000000';
+  filterParts.push(
+    `[frm_scaled]pad=${outputWidth}:${outputHeight}:(ow-iw)/2:(oh-ih)/2:${bgColor}[frm_padded]`,
+  );
+  filterParts.push(
+    `[${pngIdx}:v]loop=-1:1:0,setpts=N/FRAME_RATE/TB[frm_png]`,
+  );
+  filterParts.push(
+    `[frm_padded][frm_png]overlay=0:0:format=auto:shortest=1[frm_out]`,
+  );
 
   return { filterParts, inputArgs, videoSource: 'frm_out', addedInputs };
 }
@@ -263,17 +280,12 @@ function buildFrameFilterInline(
     ? { type: 'solid' as const, value: '#000000' }
     : config.background ?? { type: 'solid' as const, value: '#000000' };
 
-  if (padding <= 0) return null;
-
-  if (outputWidth - 2 * padding <= 0 || outputHeight - 2 * padding <= 0) return null;
-
   // Same DAR-preserving fit-box approach as the fast-path buildFrameFilter
   // and generateFramePng. Keeps SAR=1:1 and aligns with the rounded-corner
   // cutout when both paths are used.
-  const sourceDAR = outputWidth / outputHeight;
-  const { fitW: evenInnerW, fitH: evenInnerH } = computeInnerFitBox(
-    outputWidth, outputHeight, padding, sourceDAR,
-  );
+  const layout = resolveFrameLayout(outputWidth, outputHeight, padding);
+  if (!layout) return null;
+  const { evenInnerW, evenInnerH } = layout;
 
   const filterParts: string[] = [];
   const inputArgs: string[] = [];
