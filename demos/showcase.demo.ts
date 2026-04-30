@@ -31,9 +31,12 @@ test('showcase', async ({ page, narration }) => {
   spotlight(page, '#hero-command', { duration: 4800, padding: 18 });
   await showOverlay(page, 'hero', narration.durationFor('hero', { maxMs: 7800 }));
 
-  narration.mark('authoring');
+  // Scroll FIRST so the new section is visible before audio starts. Without this
+  // reorder, mark() fires immediately and the audio for the new scene begins
+  // while the page is still mid-transition, giving 300–800ms of perceived lag.
   await page.locator('#authoring').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
+  narration.mark('authoring');
   await withOverlay(page, 'authoring', async () => {
     const totalMs = narration.durationFor('authoring', { maxMs: 9200 }) - 400;
     const beat = Math.floor(totalMs / 5);
@@ -44,9 +47,9 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#authoring-duration', { color: '#f59e0b', duration: beat, wait: true });
   });
 
-  narration.mark('voiceover');
   await page.locator('#voiceover').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
+  narration.mark('voiceover');
   await withOverlay(page, 'voiceover', async () => {
     const totalMs = narration.durationFor('voiceover', { maxMs: 10000 }) - 400;
     const beat = Math.floor(totalMs / 8);
@@ -61,9 +64,9 @@ test('showcase', async ({ page, narration }) => {
     await resetCamera(page);
   });
 
-  narration.mark('preview');
   await page.locator('#preview-editor').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
+  narration.mark('preview');
   await withOverlay(page, 'preview', async () => {
     // 6 beats: command, drag, type, scrubber, regen, export
     const totalMs = narration.durationFor('preview', { maxMs: 9000 }) - 400;
@@ -77,9 +80,9 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#preview-export', { color: '#4ade80', duration: beat, wait: true });
   });
 
-  narration.mark('camera');
   await page.locator('#camera-effects').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
+  narration.mark('camera');
   // Total scene time = durationFor. Divide evenly across 6 effects.
   // Each beat includes the effect duration + a small gap.
   const totalCameraMs = narration.durationFor('camera', { maxMs: 10000 });
@@ -102,9 +105,9 @@ test('showcase', async ({ page, narration }) => {
   await page.waitForTimeout(cameraBeat + cameraGap);
   await resetCamera(page);
 
-  narration.mark('export');
   await page.locator('#export-stack').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
+  narration.mark('export');
   await withOverlay(page, 'export', async () => {
     const totalMs = narration.durationFor('export', { maxMs: 9800 }) - 400;
     const beat = Math.floor(totalMs / 7);
@@ -117,9 +120,9 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#export-formats', { color: '#fb7185', duration: beat, wait: true });
   });
 
-  narration.mark('studio');
   await page.locator('#studio-polish').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
+  narration.mark('studio');
   await withOverlay(page, 'studio', async () => {
     const totalMs = narration.durationFor('studio', { maxMs: 10000 }) - 400;
     // Flash 3 animated blocks in the bottom-left zone so the GSAP loops
@@ -169,9 +172,9 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#polish-arrows', { color: '#fb7185', duration: beat, wait: true });
   });
 
-  narration.mark('ops');
   await page.locator('#ops').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
+  narration.mark('ops');
   await withOverlay(page, 'ops', async () => {
     const totalMs = narration.durationFor('ops', { maxMs: 8200 }) - 400;
     const beat = Math.floor(totalMs / 4);
@@ -181,24 +184,20 @@ test('showcase', async ({ page, narration }) => {
     await focusRing(page, '#ops-doctor', { color: '#4ade80', duration: beat, wait: true });
   });
 
-  narration.mark('code');
   await page.locator('#code-example').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(500);
-  // Post-export zoom into the code block — ffmpeg crop+scale, overlay-safe
-  zoomTo(page, '#demo-script-card', {
-    narration,
-    scale: 1.35,
-    duration: narration.durationFor('code', { maxMs: 7600 }),
-    fadeIn: 1000,
-    fadeOut: 1000,
-    holdMs: 3000,
-  });
+  narration.mark('code');
+  // No post-export zoom on the code script. The earlier zoomTo recorded
+  // #demo-script-card's bbox before the scroll had visually settled, so the
+  // ffmpeg zoompan ended up cropping into the previous (ops) section's
+  // content while audio said "Under the hood, it is still Playwright".
+  // Letting the natural full-frame recording show through keeps sync.
   await showOverlay(page, 'code', narration.durationFor('code', { maxMs: 7600 }));
 
-  narration.mark('closing');
   // CTA section is min-height: 100vh with flexbox centering,
   // so scrolling it into view naturally fills the viewport.
   await page.locator('#cta').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(400);
+  narration.mark('closing');
   await page.waitForTimeout(800);
   focusRing(page, '#theme-toggle', { color: '#f59e0b', duration: 1200 });
   await page.waitForTimeout(650);

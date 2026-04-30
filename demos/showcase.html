@@ -46,9 +46,11 @@
     }
 
     html {
-      scroll-behavior: smooth;
       font-size: 16px;
-      scroll-snap-type: y proximity;
+      /* Smooth-scroll + scroll-snap removed for argo recordings — they leave
+       * the page visually catching up after scrollIntoView resolves, putting
+       * the next scene's audio ahead of its visible content. Keep instant
+       * scroll for deterministic frame capture. */
     }
 
     body {
