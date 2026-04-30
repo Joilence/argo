@@ -19,6 +19,7 @@ vi.mock('../src/gpu-encoder.js', () => ({
   detectGpuEncoder: vi.fn().mockResolvedValue(null),
   getGpuEncoderName: vi.fn((enc: string | null, _codec: string) => enc ? `h264_${enc}` : 'libx264'),
   isGpuEncodingEnabled: vi.fn().mockReturnValue(true),
+  resolveEncoder: vi.fn().mockResolvedValue(null),
 }));
 
 import { execFileSync, spawnSync } from 'node:child_process';

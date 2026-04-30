@@ -40,6 +40,42 @@ function parseGradient(value: string): { color0: string; color1: string; angle: 
 }
 
 /**
+ * Compute a DAR-preserving fit box for the source video inside the padded
+ * output frame. The box is centered; offsets account for any extra padding
+ * needed to maintain source aspect ratio. The frame PNG's hole and the
+ * filter's scale must use the same fit box or the video won't align with
+ * the rounded-corner cutout (visible as a gap on the long axis).
+ */
+function computeInnerFitBox(
+  outputW: number,
+  outputH: number,
+  padding: number,
+  sourceDAR: number,
+): { fitW: number; fitH: number; offX: number; offY: number } {
+  const innerW = outputW - 2 * padding;
+  const innerH = outputH - 2 * padding;
+  const innerDAR = innerW / innerH;
+  let fitW: number;
+  let fitH: number;
+  if (innerDAR > sourceDAR) {
+    // Inner box wider than source → height-limited.
+    fitH = innerH;
+    fitW = Math.round(innerH * sourceDAR);
+  } else {
+    fitW = innerW;
+    fitH = Math.round(innerW / sourceDAR);
+  }
+  const evenW = fitW % 2 === 0 ? fitW : fitW - 1;
+  const evenH = fitH % 2 === 0 ? fitH : fitH - 1;
+  // Center within the full output canvas (not just within the padded box —
+  // when source is narrower than the padded box, we need extra horizontal
+  // offset; when taller, extra vertical).
+  const offX = Math.round((outputW - evenW) / 2);
+  const offY = Math.round((outputH - evenH) / 2);
+  return { fitW: evenW, fitH: evenH, offX, offY };
+}
+
+/**
  * Build a rounded-rectangle alpha expression for ffmpeg geq.
  * Straight edges remain fully opaque; only corner quadrants get anti-aliased falloff.
  */
@@ -71,12 +107,17 @@ export function generateFramePng(
 
   if (padding <= 0) return null;
 
-  const innerW = outputWidth - 2 * padding;
-  const innerH = outputHeight - 2 * padding;
-  if (innerW <= 0 || innerH <= 0) return null;
+  if (outputWidth - 2 * padding <= 0 || outputHeight - 2 * padding <= 0) return null;
 
-  const evenInnerW = innerW % 2 === 0 ? innerW : innerW - 1;
-  const evenInnerH = innerH % 2 === 0 ? innerH : innerH - 1;
+  // Hole geometry must match buildFrameFilter's fit box so the rounded-corner
+  // cutout aligns with the scaled video. Source aspect is assumed to match
+  // output aspect (the recording viewport == output viewport for non-variant
+  // exports). For exports where source aspect differs (imported videos), the
+  // helper still produces a valid fit box, just with different offsets.
+  const sourceDAR = outputWidth / outputHeight;
+  const { fitW: evenInnerW, fitH: evenInnerH, offX, offY } = computeInnerFitBox(
+    outputWidth, outputHeight, padding, sourceDAR,
+  );
   const r = Math.min(borderRadius, Math.floor(evenInnerW / 2), Math.floor(evenInnerH / 2));
 
   // Generate a single-frame PNG with the background and a transparent
@@ -105,12 +146,12 @@ export function generateFramePng(
   }
 
   // Build geq that punches a transparent rounded-rect hole in the alpha channel.
-  // Inside the padded rect: alpha = 0 (transparent hole, anti-aliased corners).
+  // Inside the fit box: alpha = 0 (transparent hole, anti-aliased corners).
   // Outside: alpha = 255 (opaque frame border).
-  const x1 = padding;
-  const y1 = padding;
-  const x2 = padding + evenInnerW - 1;
-  const y2 = padding + evenInnerH - 1;
+  const x1 = offX;
+  const y1 = offY;
+  const x2 = offX + evenInnerW - 1;
+  const y2 = offY + evenInnerH - 1;
 
   // Corner distance from the inner rect edge (relative to the inner rect)
   // Use \\, for comma escaping — ffmpeg -vf parser treats commas as filter separators
@@ -155,22 +196,27 @@ export function buildFrameFilter(
   const padding = config.padding ?? 40;
   if (padding <= 0) return null;
 
-  const innerW = outputWidth - 2 * padding;
-  const innerH = outputHeight - 2 * padding;
-  if (innerW <= 0 || innerH <= 0) return null;
+  if (outputWidth - 2 * padding <= 0 || outputHeight - 2 * padding <= 0) return null;
 
-  const evenInnerW = innerW % 2 === 0 ? innerW : innerW - 1;
-  const evenInnerH = innerH % 2 === 0 ? innerH : innerH - 1;
+  // Use a DAR-preserving fit box rather than forcing exact inner dimensions.
+  // The padded box at 1920×1080 / padding=48 is 1824×984 (wider than 16:9), so
+  // a literal scale would either distort content or make ffmpeg compensate
+  // with non-square pixels (SAR != 1:1). The fit box (e.g. 1748×984) preserves
+  // source aspect; pad/overlay centers it. The PNG hole geometry must match
+  // (see generateFramePng), or the video won't align with the rounded cutout.
+  const sourceDAR = outputWidth / outputHeight;
+  const { fitW: evenInnerW, fitH: evenInnerH } = computeInnerFitBox(
+    outputWidth, outputHeight, padding, sourceDAR,
+  );
 
   const filterParts: string[] = [];
   const inputArgs: string[] = [];
   let addedInputs = 0;
   const srcRef = `[${videoSource}]`;
 
-  // Scale video to exact inner dimensions (no aspect ratio preservation —
-  // the recording viewport matches the config so there's no distortion)
+  // Scale video to the DAR-preserving fit box and pin square pixels.
   filterParts.push(
-    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos[frm_scaled]`,
+    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos,setsar=1[frm_scaled]`,
   );
 
   if (framePngPath && existsSync(framePngPath)) {
@@ -219,21 +265,25 @@ function buildFrameFilterInline(
 
   if (padding <= 0) return null;
 
-  const innerW = outputWidth - 2 * padding;
-  const innerH = outputHeight - 2 * padding;
-  if (innerW <= 0 || innerH <= 0) return null;
+  if (outputWidth - 2 * padding <= 0 || outputHeight - 2 * padding <= 0) return null;
 
-  const evenInnerW = innerW % 2 === 0 ? innerW : innerW - 1;
-  const evenInnerH = innerH % 2 === 0 ? innerH : innerH - 1;
+  // Same DAR-preserving fit-box approach as the fast-path buildFrameFilter
+  // and generateFramePng. Keeps SAR=1:1 and aligns with the rounded-corner
+  // cutout when both paths are used.
+  const sourceDAR = outputWidth / outputHeight;
+  const { fitW: evenInnerW, fitH: evenInnerH } = computeInnerFitBox(
+    outputWidth, outputHeight, padding, sourceDAR,
+  );
 
   const filterParts: string[] = [];
   const inputArgs: string[] = [];
   let addedInputs = 0;
   const srcRef = `[${videoSource}]`;
 
+  // Scale to fit box and pin square pixels. force_original_aspect_ratio is
+  // not needed since the fit box already matches source aspect.
   filterParts.push(
-    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos:` +
-    `force_original_aspect_ratio=decrease:force_divisible_by=2[frm_scaled]`,
+    `${srcRef}scale=${evenInnerW}:${evenInnerH}:flags=lanczos,setsar=1[frm_scaled]`,
   );
 
   if (borderRadius > 0) {

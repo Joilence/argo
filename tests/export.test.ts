@@ -18,13 +18,14 @@ vi.mock('../src/gpu-encoder.js', () => ({
   detectGpuEncoder: vi.fn().mockResolvedValue(null),
   getGpuEncoderName: vi.fn((enc: string | null, _codec: string) => enc ? `h264_${enc}` : 'libx264'),
   isGpuEncodingEnabled: vi.fn().mockReturnValue(true),
+  resolveEncoder: vi.fn().mockResolvedValue(null),
 }));
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { runFfmpegWithProgress } from '../src/progress.js';
 import { checkFfmpeg, exportVideo } from '../src/export.js';
-import { detectGpuEncoder, getGpuEncoderName, isGpuEncodingEnabled } from '../src/gpu-encoder.js';
+import { detectGpuEncoder, getGpuEncoderName, isGpuEncodingEnabled, resolveEncoder } from '../src/gpu-encoder.js';
 
 const mockedExecFileSync = vi.mocked(execFileSync);
 const mockedSpawnSync = vi.mocked(spawnSync);
@@ -33,6 +34,7 @@ const mockedMkdirSync = vi.mocked(mkdirSync);
 const mockedDetectGpuEncoder = vi.mocked(detectGpuEncoder);
 const mockedGetGpuEncoderName = vi.mocked(getGpuEncoderName);
 const mockedIsGpuEncodingEnabled = vi.mocked(isGpuEncodingEnabled);
+const mockedResolveEncoder = vi.mocked(resolveEncoder);
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -40,6 +42,11 @@ beforeEach(() => {
   mockedDetectGpuEncoder.mockResolvedValue(null);
   mockedGetGpuEncoderName.mockImplementation((enc, _codec) => enc ? `h264_${enc}` : 'libx264');
   mockedIsGpuEncodingEnabled.mockReturnValue(true);
+  // resolveEncoder delegates to existing mocks so tests can keep driving
+  // behavior through mockedDetectGpuEncoder + mockedIsGpuEncodingEnabled.
+  mockedResolveEncoder.mockImplementation(async () => {
+    return mockedIsGpuEncodingEnabled() ? await mockedDetectGpuEncoder() : null;
+  });
 });
 
 // ---------- checkFfmpeg ----------

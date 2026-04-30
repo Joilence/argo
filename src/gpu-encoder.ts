@@ -66,8 +66,45 @@ export function getGpuEncoderName(encoder: GpuEncoder, codec: 'h264'): string {
 /**
  * Whether GPU encoding is enabled for this process.
  * Controlled by `ARGO_USE_GPU` env var: unset/`'1'` → enabled, `'0'` → disabled.
+ *
+ * Prefer `resolveEncoder()` for new code — it accepts an explicit caller
+ * preference so paths like `argo pipeline` (quality-first) and `argo preview`
+ * (speed-first) can pick different defaults.
  */
 export function isGpuEncodingEnabled(): boolean {
   const v = process.env.ARGO_USE_GPU;
   return v === undefined || v === '1' || v === 'true';
+}
+
+export type EncoderPreference = 'cpu' | 'gpu';
+
+/**
+ * Resolve the encoder to use for a given export call.
+ *
+ * Precedence (highest → lowest):
+ *   1. `ARGO_USE_GPU` env var ('0'/'false' → cpu, '1'/'true' → gpu) — explicit user override
+ *   2. `preference` arg (from `export.encoder` config or call site)
+ *   3. `defaultPreference` arg (caller default: pipeline/cli pass 'cpu' for quality,
+ *      preview passes 'gpu' for fast iteration)
+ *
+ * Returns a `GpuEncoder` handle (or `null` for libx264).
+ *
+ * Why CPU is the default for pipeline/cli: videotoolbox at the default mapping
+ * (`100 - crf*2` → q:v 54 at CRF 23) introduces dark-region quantization
+ * (visible as watercolor banding on dark backgrounds at 4K source) that
+ * libx264 with `aq-mode=3` does not. The 3–5× encode-time penalty is an
+ * acceptable trade for a one-shot pipeline run.
+ */
+export async function resolveEncoder(
+  preference: EncoderPreference | undefined,
+  defaultPreference: EncoderPreference,
+): Promise<GpuEncoder> {
+  const env = process.env.ARGO_USE_GPU;
+  let chosen: EncoderPreference;
+  if (env === '0' || env === 'false') chosen = 'cpu';
+  else if (env === '1' || env === 'true') chosen = 'gpu';
+  else chosen = preference ?? defaultPreference;
+
+  if (chosen === 'cpu') return null;
+  return await detectGpuEncoder();
 }
