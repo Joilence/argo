@@ -127,6 +127,8 @@ export class NarrationTimeline {
     let writeChain: Promise<void> = Promise.resolve();
     let lastJpeg: Buffer | null = null;
     let lastFrameNumber = -1;
+    let cdpFrameCount = 0;
+    let gapFillCount = 0;
     const recordingStart = Date.now();
 
     if (streamOut) {
@@ -179,6 +181,7 @@ export class NarrationTimeline {
       while (lastFrameNumber + 1 < targetFrame) {
         if (lastJpeg) writeFrame(lastJpeg);
         lastFrameNumber++;
+        gapFillCount++;
       }
     };
 
@@ -197,6 +200,7 @@ export class NarrationTimeline {
           writeFrame(data);
           lastJpeg = data;
           lastFrameNumber = targetFrame;
+          cdpFrameCount++;
         }
         if (thumbsDir && this._pendingThumbScene) {
           const scene = this._pendingThumbScene;
@@ -222,9 +226,14 @@ export class NarrationTimeline {
     if (streamOut && ffmpegProc) {
       const proc = ffmpegProc;
       this._streamCleanup = async () => {
+        // Snapshot stats BEFORE the tail pad — that fillGapTo would otherwise
+        // inflate gap-fill numbers with legitimate end-of-recording padding.
+        const elapsed = Date.now() - recordingStart;
+        const inFlightCdpFrames = cdpFrameCount;
+        const inFlightGapFills = gapFillCount;
+
         // Pad final frames so the mp4 duration matches actual recording length
         // (idle pages can leave a multi-second tail with no CDP frames).
-        const elapsed = Date.now() - recordingStart;
         const targetFrame = Math.floor(elapsed * streamFps / 1000);
         fillGapTo(targetFrame);
         await writeChain;
@@ -233,6 +242,24 @@ export class NarrationTimeline {
           if (proc.exitCode !== null) resolve();
           else proc.once('close', () => resolve());
         });
+
+        // Diagnostic: if CDP averaged less than half the requested fps over a
+        // recording longer than 5s, throughput was likely the bottleneck.
+        // Visuals can lag audio because frame numbers (computed from arrival
+        // wallclock) drift past actual paint moments under queue pressure.
+        // Hotfix mitigates via lower default JPEG quality at DPR>1; this
+        // warning surfaces remaining trouble so users can switch to
+        // captureMode: 'webm' or drop deviceScaleFactor to 1.
+        const elapsedSec = elapsed / 1000;
+        const avgCdpFps = elapsedSec > 0 ? inFlightCdpFrames / elapsedSec : 0;
+        if (elapsedSec > 5 && inFlightCdpFrames > 0 && avgCdpFps < streamFps * 0.5) {
+          console.warn(
+            `Warning: jpeg-stitch sustained ${avgCdpFps.toFixed(1)}fps from CDP over ${elapsedSec.toFixed(1)}s ` +
+            `(target ${streamFps}fps; ${inFlightGapFills} of ${inFlightCdpFrames + inFlightGapFills} frames synthesized). ` +
+            `CDP transport may be under-running — visuals could lag audio. ` +
+            `Consider captureMode: 'webm', deviceScaleFactor: 1, or a lower jpegQuality.`,
+          );
+        }
       };
     }
 

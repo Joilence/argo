@@ -93,6 +93,17 @@ export async function record(demoName: string, options: RecordOptions): Promise<
   const argoDir = path.join('.argo', options.argoSubdir ?? demoName);
   mkdirSync(argoDir, { recursive: true });
 
+  // Clean stale recordings from any previous capture mode. Switching between
+  // jpeg-stitch and webm leaves the other format on disk, and downstream code
+  // that auto-detects the input file (preview, clip extraction) can pick the
+  // wrong one — silently exporting last run's video.
+  for (const stale of ['video.mp4', 'video.webm', '.engine-discard.webm']) {
+    const stalePath = path.join(argoDir, stale);
+    if (existsSync(stalePath)) {
+      try { unlinkSync(stalePath); } catch { /* best-effort */ }
+    }
+  }
+
   // jpeg-stitch (stream-encode) produces an H.264 mp4 directly — JPEG frames
   // are piped to ffmpeg child in narration.startRecording, bypassing
   // Playwright's hardcoded VP8 encoder. Default mode keeps Playwright's WebM.
@@ -177,7 +188,15 @@ export async function record(demoName: string, options: RecordOptions): Promise<
       // is the mp4 path that ffmpeg writes; ARGO_FPS sets the input cadence (frame
       // gaps in CDP get padded with frame duplicates to match wallclock).
       const streamOutPath = useJpegStitch ? path.resolve(videoPath) : '';
-      const jpegQuality = String(options.jpegQuality ?? 95);
+      // At deviceScaleFactor>1 in stream-encode, every CDP frame is a 4K JPEG.
+      // Quality 95 produces JPEGs large enough that the CDP transport (encode
+      // + IPC + parse) can't sustain wallclock pace on heavy SPAs. Frames pile
+      // up upstream of onFrame, arrivals lag paint, and visuals fall behind
+      // audio. Default to 80 (3-4x smaller JPEGs) when the user hasn't pinned
+      // a value — explicit jpegQuality always wins.
+      const dsf = normalizeDeviceScaleFactor(options.deviceScaleFactor);
+      const defaultJpegQuality = useJpegStitch && dsf > 1 ? 80 : 95;
+      const jpegQuality = String(options.jpegQuality ?? defaultJpegQuality);
 
       execFile('npx', ['playwright', 'test', '--config', recordConfigPath, '--grep', demoName, '--project', 'demos'], {
         env: {
