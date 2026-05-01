@@ -26,6 +26,9 @@ interface ScreencastPage {
       position?: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right';
     }): Promise<unknown>;
   };
+  evaluate<R>(pageFunction: () => R | Promise<R>): Promise<R>;
+  on(event: 'framenavigated', listener: (frame: { parentFrame: () => unknown }) => void): unknown;
+  off(event: 'framenavigated', listener: (frame: { parentFrame: () => unknown }) => void): unknown;
 }
 
 export interface StartRecordingOptions {
@@ -64,6 +67,8 @@ export class NarrationTimeline {
   private _screencastStop: (() => Promise<void>) | null = null;
   private _streamCleanup: (() => Promise<void>) | null = null;
   private _pendingThumbScene: string | null = null;
+  private _recordingPage: ScreencastPage | null = null;
+  private _navListener: ((frame: { parentFrame: () => unknown }) => void) | null = null;
 
   constructor(sceneDurations?: Record<string, number>) {
     if (sceneDurations) {
@@ -220,6 +225,19 @@ export class NarrationTimeline {
     // through; for jpeg-stitch users it's a discardable temp file.
     await page.screencast.start({ path: screencastPath, size, quality, onFrame });
     this._screencastStop = () => page.screencast.stop();
+    this._recordingPage = page;
+
+    // CDP screencast only emits frames on paint. After page.goto() lands,
+    // Chrome can stay paused for the inter-paint window — gap-fill repeats
+    // the last (pre-nav) JPEG and the new page doesn't appear in the video
+    // until the next natural paint (could be seconds on heavy SPAs). Force
+    // a paint right after navigation so CDP unsticks promptly.
+    const navListener = (frame: { parentFrame: () => unknown }): void => {
+      if (frame.parentFrame() !== null) return; // ignore subframe navs
+      this._triggerPaint();
+    };
+    this._navListener = navListener;
+    page.on('framenavigated', navListener);
 
     // Cleanup hook for stream-encode mode — pads to wall-clock, ends stdin,
     // waits for ffmpeg to flush. Called from _closeRecording().
@@ -293,6 +311,16 @@ export class NarrationTimeline {
     const cleanup = this._streamCleanup;
     this._streamCleanup = null;
 
+    // Detach the framenavigated listener so a reused page (e.g., across
+    // tests in the same worker) doesn't keep nudging paints after teardown.
+    const navListener = this._navListener;
+    const recPage = this._recordingPage;
+    if (navListener && recPage) {
+      try { recPage.off('framenavigated', navListener); } catch { /* best-effort */ }
+    }
+    this._navListener = null;
+    this._recordingPage = null;
+
     // Stop CDP screencast first so no more frames arrive after we've sealed
     // the stream-encode pipeline. Then pad/flush ffmpeg and wait for it to
     // close — order matters: we want the full set of CDP frames in the mp4.
@@ -310,6 +338,23 @@ export class NarrationTimeline {
     }
   }
 
+  /**
+   * Mutate a no-op `data-argo-paint` attribute on the documentElement to
+   * force Chrome's compositor to schedule a paint. CDP screencast then emits
+   * a fresh frame containing the current visual state. Fire-and-forget — the
+   * eval can race page disposal during teardown; we silently ignore those.
+   */
+  private _triggerPaint(): void {
+    const page = this._recordingPage;
+    if (!page) return;
+    page.evaluate(() => {
+      // performance.now() is monotonic and unique enough to guarantee the
+      // attribute value actually changes (Chrome optimizes out same-value sets).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (document.documentElement as any).dataset.argoPaint = String(performance.now());
+    }).catch(() => { /* page disposed during teardown — best-effort */ });
+  }
+
   mark(scene: string): void {
     if (this.startTime === null) {
       throw new Error('Cannot mark before start() has been called');
@@ -324,6 +369,13 @@ export class NarrationTimeline {
     // Tell the next onFrame callback to also persist this scene's JPEG —
     // best-effort, gated on ARGO_THUMBS_DIR being set + screencast being live.
     this._pendingThumbScene = scene;
+
+    // Force CDP to emit a fresh frame so this scene's visual state is in the
+    // recording at mark-time. Without this, an idle page (no recent paint)
+    // can leave the previous scene's JPEG as the gap-fill source until the
+    // next natural paint — which can be hundreds of ms later, enough for
+    // visuals to lag audio noticeably.
+    this._triggerPaint();
 
     // Append to JSONL progress file for live scene status in the parent process
     const progressPath = process.env.ARGO_PROGRESS_PATH;
