@@ -81,6 +81,45 @@ describe('getTimings', () => {
   });
 });
 
+// ---------- paint-trigger ----------
+describe('mark — paint trigger', () => {
+  it('calls page.evaluate after mark() once recording page is attached', () => {
+    const timeline = new NarrationTimeline();
+    timeline.start();
+
+    const evaluate = vi.fn().mockResolvedValue(undefined);
+    // Stand in for the real Playwright page just enough to satisfy
+    // _triggerPaint(). The other ScreencastPage members aren't exercised here.
+    (timeline as unknown as { _recordingPage: unknown })._recordingPage = { evaluate };
+
+    timeline.mark('intro');
+    expect(evaluate).toHaveBeenCalledTimes(1);
+    // The injected function does the documentElement nudge — the runtime
+    // doesn't get to inspect its body, but it must be a function.
+    expect(typeof evaluate.mock.calls[0][0]).toBe('function');
+  });
+
+  it('does not call page.evaluate when no recording page is set', () => {
+    const timeline = new NarrationTimeline();
+    timeline.start();
+    // No page attached — mark() must not throw or attempt paint trigger.
+    expect(() => timeline.mark('intro')).not.toThrow();
+  });
+
+  it('swallows page.evaluate rejections (page disposed during teardown)', async () => {
+    const timeline = new NarrationTimeline();
+    timeline.start();
+
+    const evaluate = vi.fn().mockRejectedValue(new Error('Target page closed'));
+    (timeline as unknown as { _recordingPage: unknown })._recordingPage = { evaluate };
+
+    timeline.mark('intro');
+    // Drain microtasks so the .catch() runs; nothing should throw.
+    await Promise.resolve();
+    expect(evaluate).toHaveBeenCalled();
+  });
+});
+
 // ---------- flush ----------
 describe('flush', () => {
   let tmpDir: string;
