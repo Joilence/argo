@@ -129,8 +129,9 @@ export default defineConfig({
   tts: { defaultVoice: 'af_heart', defaultSpeed: 1.0 },
   video: {
     width: 1920, height: 1080, fps: 30,
-    browser: 'webkit',           // webkit > firefox > chromium on macOS
-    // deviceScaleFactor: 2,     // enable after webkit 2x fix
+    browser: 'chromium',         // chromium with jpeg-stitch is the highest-quality path (v0.35+)
+    captureMode: 'jpeg-stitch',  // CDP-direct paint-time capture; auto-downgrades on webkit/firefox
+    deviceScaleFactor: 2,        // 4K supersample → lanczos downscale; auto-clamps to 1 on non-chromium
   },
   export: {
     preset: 'slow', crf: 16,

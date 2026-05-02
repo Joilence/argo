@@ -433,8 +433,10 @@ These are the failure modes that come up repeatedly:
 | Stale voiceover audio | TTS cache not cleared after text edit | `rm -rf .argo/<demo>/clips` |
 | Scene names not matching | Case-sensitive mismatch between manifest and `mark()` | Scene names are exact strings — check spelling/case |
 | Timeout during recording | Demo exceeds Playwright 30s default | Add `test.setTimeout(90000)` at test start |
-| Soft/blurry video on macOS | Using chromium (known capture issue) | Switch to `--browser webkit` |
-| `deviceScaleFactor: 2` broken with webkit | Known bug — viewport renders at 1/4 | Stick to `deviceScaleFactor: 1` until fixed |
+| Soft/blurry video on chromium | Using default `webm` capture (Playwright VP8 encoder) | Set `captureMode: 'jpeg-stitch'` + `deviceScaleFactor: 2` — bypasses Playwright's encoder via CDP-direct (v0.35+) |
+| Visual lag on chromium jpeg-stitch | CDP transport throughput (DPR>1 + heavy SPA) | v0.35+ uses paint-time frame timing — upgrade. Pre-v0.35: drop `deviceScaleFactor` or `jpegQuality` |
+| Gray padding on right/bottom of frame (firefox/webkit) | `deviceScaleFactor > 1` not honored on non-chromium | v0.35+ auto-clamps to 1 with a warning. Manually set `deviceScaleFactor: 1` for older versions |
+| jpeg-stitch hangs until timeout (firefox/webkit) | `onFrame` delivery too slow on non-chromium | v0.35+ auto-downgrades to `webm` with a warning. Manually set `captureMode: 'webm'` for older versions |
 | ESM warnings from config | Config file is `.js` in non-module project | Rename to `argo.config.mjs` |
 | Overlays scale weirdly | Legacy `zoomTo` (without `narration`) transforms DOM | Use `zoomTo(page, target, { narration })` for overlay-safe post-export zoom |
 | App looks wrong in recording | App uses system dark/light mode | Use `page.emulateMedia({ colorScheme: 'dark' })` — see `references/config-and-quality.md` |

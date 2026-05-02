@@ -16,8 +16,9 @@ export default defineConfig({
     width: 1920,
     height: 1080,
     fps: 30,
-    browser: 'webkit',        // webkit > firefox > chromium on macOS
-    // deviceScaleFactor: 2,  // 2x capture (known issue with webkit)
+    browser: 'chromium',         // chromium + jpeg-stitch is the highest-quality path (v0.35+)
+    captureMode: 'jpeg-stitch',  // CDP-direct paint-time capture; bypasses Playwright's VP8 encoder
+    deviceScaleFactor: 2,        // 4K capture → lanczos downscale; auto-clamps to 1 on non-chromium
   },
   export: {
     preset: 'slow',           // ffmpeg preset: slower = smaller file
@@ -85,13 +86,13 @@ For the full API, consult the Playwright docs at <https://playwright.dev/docs/ap
 
 ## Browser Quality on macOS
 
-Video capture quality varies by engine: **webkit > firefox > chromium**. Chromium has a known capture quality issue ([playwright#31424](https://github.com/microsoft/playwright/issues/31424)). Use `--browser webkit` or `video.browser: 'webkit'` for best results.
+**Chromium with `captureMode: 'jpeg-stitch'` is the highest-quality path (v0.35+).** It uses a CDP-direct screencast with paint-time frame timing and bypasses Playwright's VP8 encoder entirely, sidestepping the legacy chromium capture quality issue ([playwright#31424](https://github.com/microsoft/playwright/issues/31424)).
+
+webkit and firefox remain solid for the default `webm` capture. They auto-downgrade `jpeg-stitch → webm` (firefox `onFrame` only sustains ~3fps) and auto-clamp `deviceScaleFactor → 1` (neither honors `--force-device-scale-factor`) with loud warnings — so a chromium-tuned config still runs cleanly on those browsers, just at lower fidelity.
 
 ## High-DPI Recording
 
-`video.deviceScaleFactor: 2` captures at 2x resolution; export downscales with lanczos for sharper output.
-
-**Known issue**: `deviceScaleFactor: 2` causes rendering issues with webkit (viewport at 1/4 of frame). Stick to `deviceScaleFactor: 1` until fixed.
+`video.deviceScaleFactor: 2` captures at 2x resolution; export downscales with lanczos for sharper output. **Chromium-only** in practice — auto-clamped to 1 on webkit/firefox because they don't honor `--force-device-scale-factor` (the page renders at 1x while the screencast captures at the 2x viewport, leaving the right + bottom of every frame as gray padding).
 
 ## 5K Displays and 4K Exports
 
