@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { Writable } from 'node:stream';
@@ -561,5 +561,101 @@ export class NarrationTimeline {
    */
   sceneDuration(scene: string, options?: SceneDurationOptions): number {
     return this.getBaseDuration(scene, options);
+  }
+
+  /**
+   * Return scene-relative per-word timestamps for `scene` (first word
+   * starts near 0). Loaded from the transcript sidecar pointed to by
+   * `ARGO_TRANSCRIPT_PATH` (the pipeline sets this to the scene-keyed
+   * file after TTS+transcription). Empty array if transcription is
+   * disabled or the file is missing — treat word timing as an
+   * enhancement, not a precondition.
+   *
+   * Use this during recording to schedule effects on specific words:
+   *
+   *   for (const w of narration.wordTiming('hero')) {
+   *     setTimeout(() => focusRing(page, '#x'), w.start * 1000);
+   *   }
+   *
+   * For absolute (recording-aligned) timestamps over the whole video,
+   * post-pipeline consumers should read `.argo/&lt;demo&gt;/narration.transcript.json`
+   * directly — that file is written after alignment with placement
+   * offsets folded in.
+   */
+  wordTiming(scene: string): WordTiming[] {
+    const transcript = loadTranscript();
+    const words = transcript?.scenes[scene];
+    return words ? words.map((w) => ({ ...w })) : [];
+  }
+
+  /**
+   * Milliseconds from now until `target` is next spoken inside `scene`,
+   * or null when the word is missing, already past, or the transcript
+   * isn't loaded. Anchors come from the Whisper transcript, so spell
+   * the word as Whisper transcribed it (Kokoro pronouncing "Kokoro" as
+   * "cochro" means callers pass `'cochro'`, not `'Kokoro'`).
+   */
+  atWord(scene: string, target: string): number | null {
+    if (this.startTime === null) return null;
+    const markMs = this.timings.get(scene);
+    if (markMs === undefined) return null;
+    const words = loadTranscript()?.scenes[scene];
+    if (!words?.length) return null;
+
+    const normalized = normalizeWord(target);
+    for (const w of words) {
+      if (normalizeWord(w.text) !== normalized) continue;
+      const elapsedInSceneMs = (Date.now() - this.startTime) - markMs;
+      const remaining = w.start * 1000 - elapsedInSceneMs;
+      return remaining > 0 ? Math.ceil(remaining) : null;
+    }
+    return null;
+  }
+}
+
+const normalizeWord = (s: string): string => s.toLowerCase().replace(/[^\w']/g, '');
+
+export interface WordTiming {
+  text: string;
+  start: number;
+  end: number;
+}
+
+interface AggregateTranscript {
+  version: number;
+  model: string;
+  language?: string;
+  scenes: Record<string, WordTiming[]>;
+}
+
+let cachedTranscript: AggregateTranscript | null | undefined = undefined;
+
+/** Lazily load + cache the aggregate transcript file referenced by
+ *  `ARGO_TRANSCRIPT_PATH`. Cached per process so repeated lookups across
+ *  scenes pay one filesystem read. Returns null if the env var is unset
+ *  or the file is missing/malformed (transcription is opt-in). */
+function loadTranscript(): AggregateTranscript | null {
+  if (cachedTranscript !== undefined) return cachedTranscript;
+  const path = process.env.ARGO_TRANSCRIPT_PATH;
+  if (!path) {
+    cachedTranscript = null;
+    return null;
+  }
+  try {
+    if (!existsSync(path)) {
+      cachedTranscript = null;
+      return null;
+    }
+    const raw = readFileSync(path, 'utf-8');
+    const parsed = JSON.parse(raw) as AggregateTranscript;
+    cachedTranscript = parsed;
+    return parsed;
+  } catch (err) {
+    console.warn(
+      `Warning: failed to load transcript from ${path}: ${(err as Error).message}. ` +
+      `Continuing without word timings.`
+    );
+    cachedTranscript = null;
+    return null;
   }
 }
