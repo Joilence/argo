@@ -1,4 +1,5 @@
 import type { TTSEngine, TTSEngineOptions, TTSEngineMetadata } from '../engine.js';
+import { importOptional, SARVAM_DEP } from '../../optional-deps.js';
 
 export interface SarvamEngineOptions {
   apiKey?: string;
@@ -33,15 +34,13 @@ export class SarvamEngine implements TTSEngine {
   async generate(text: string, options: TTSEngineOptions): Promise<Buffer> {
     if (!text?.trim()) throw new Error('TTS text must not be empty');
 
-    let SarvamAI: any;
-    try {
-      // @ts-ignore — sarvamai is an optional dependency
-      ({ default: SarvamAI } = await import('sarvamai'));
-    } catch {
-      throw new Error(
-        "Sarvam TTS engine requires the 'sarvamai' package. Install it with: npm i sarvamai"
-      );
-    }
+    // Loosely typed on purpose: preserves the existing `default` interop
+    // shape. See the packaging PR notes about `sarvamai` also exporting a
+    // named `SarvamAI`, which is a separate behavioural question.
+    const { default: SarvamAI }: any = await importOptional(
+      () => import('sarvamai'),
+      SARVAM_DEP,
+    );
 
     const client = new SarvamAI({ apiSubscriptionKey: this.resolveApiKey() });
     const response = await client.textToSpeech.convert({
