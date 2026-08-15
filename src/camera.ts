@@ -16,6 +16,23 @@ interface CameraOptions {
 export interface SpotlightOptions extends CameraOptions {
   opacity?: number;
   padding?: number;
+  /**
+   * Corner radius of the cutout, in px. Default 10. Pass 0 for square corners.
+   *
+   * The hole is a rectangle around the target's bounding box, so on a pill
+   * button or a rounded card a square cutout reads as a crop rather than as a
+   * highlight.
+   */
+  radius?: number;
+  /**
+   * How far the cutout's edge fades into the scrim, in px. Default 12, and 0
+   * gives the hard edge this effect used to have.
+   *
+   * This is the blur radius applied to the mask, so the scrim ramps in over
+   * roughly this distance instead of stepping from clear to full opacity in
+   * one pixel.
+   */
+  feather?: number;
 }
 
 export interface FocusRingOptions extends CameraOptions {
@@ -100,11 +117,13 @@ export async function spotlight(
   const fadeOut = opts?.fadeOut ?? 400;
   const opacity = opts?.opacity ?? 0.7;
   const padding = opts?.padding ?? 12;
+  const radius = opts?.radius ?? 10;
+  const feather = opts?.feather ?? 12;
   const wait = opts?.wait ?? false;
 
   const { selector, rect: preRect } = await resolveRect(page, selectorOrLocator);
 
-  await runCameraEffect(page, ({ selector, preRect, duration, fadeIn, fadeOut, opacity, padding, attr }: any) => {
+  await runCameraEffect(page, ({ selector, preRect, duration, fadeIn, fadeOut, opacity, padding, radius, feather, attr }: any) => {
     const rect = preRect ?? (() => {
       const target = document.querySelector(selector);
       if (!target) { console.warn('[argo] camera effect: no element found for selector "' + selector + '"'); return null; }
@@ -112,39 +131,68 @@ export async function spotlight(
     })();
     if (!rect) return;
 
-    const overlay = document.createElement('div');
-    overlay.setAttribute(attr, 'spotlight');
-    // The clip-path below cuts the hole with a second ring inside the first.
-    // Its fill-rule is `evenodd` rather than the default `nonzero` because
-    // nonzero only subtracts the inner ring when it winds opposite to the outer
-    // one, and both rings here are written in the same order. Under nonzero the
-    // interior fills instead of clearing, so the overlay paints as a solid
-    // scrim with no hole at all: no error, no warning, just a dark frame for
-    // the whole effect. `evenodd` makes the cutout independent of vertex order,
-    // so reordering these points later stays safe.
-    overlay.style.cssText = `
-      position: fixed; inset: 0; z-index: 99990; pointer-events: none;
-      background: rgba(0,0,0,${opacity});
-      clip-path: polygon(
-        evenodd,
-        0% 0%, 0% 100%, 100% 100%, 100% 0%, 0% 0%,
-        ${rect.left - padding}px ${rect.top - padding}px,
-        ${rect.left - padding}px ${rect.bottom + padding}px,
-        ${rect.right + padding}px ${rect.bottom + padding}px,
-        ${rect.right + padding}px ${rect.top - padding}px,
-        ${rect.left - padding}px ${rect.top - padding}px
-      );
-      opacity: 0; transition: opacity ${fadeIn}ms ease-out;
+    // An SVG mask rather than a clip-path polygon. A polygon cuts a hole with
+    // hard edges and square corners and can express nothing else: there is no
+    // way to round its corners without emitting arcs by hand, and no way to
+    // soften its edge at all. The mask here is a white full-viewport rect (keep
+    // the scrim) with a black rounded rect punched through it (drop the scrim),
+    // and blurring that black rect is what feathers the hole. Corner radius and
+    // edge softness then become two numbers instead of a rewrite.
+    // Every value below is interpolated into markup, so coerce first. These are
+    // all numbers coming from a bounding box or from typed options, but a NaN
+    // reaching the mask emits invalid SVG that renders as a blank scrim with no
+    // hole, which is the one failure this effect must not have again.
+    const num = (v: unknown, fallback: number) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+    const pad = num(padding, 12);
+    const rad = Math.max(0, num(radius, 10));
+    const soft = Math.max(0, num(feather, 12));
+    const dim = Math.min(1, Math.max(0, num(opacity, 0.7)));
+
+    const id = 'argo-spot-' + Math.random().toString(36).slice(2, 10);
+    const x = num(rect.left, 0) - pad;
+    const y = num(rect.top, 0) - pad;
+    const w = num(rect.width, 0) + pad * 2;
+    const h = num(rect.height, 0) + pad * 2;
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute(attr, 'spotlight');
+    svg.style.cssText = `
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      z-index: 99990; pointer-events: none;
+      opacity: 0; transition: opacity ${fadeIn}ms cubic-bezier(0.4, 0, 0.2, 1);
     `;
-    document.body.appendChild(overlay);
-    requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+    // No viewBox: user units then map 1:1 onto CSS pixels, which is what
+    // getBoundingClientRect and Playwright's boundingBox both report.
+    //
+    // `color-interpolation-filters="sRGB"` because the SVG default is
+    // linearRGB, which makes a blurred mask ramp perceptually wrong: the scrim
+    // would darken far too fast right at the edge of the hole.
+    //
+    // The filter region is widened to 200% so the blur is not clipped by the
+    // default -10%/120% object bounding box, which for a small target would cut
+    // the feather off partway through its ramp.
+    svg.innerHTML = `
+      <defs>
+        <filter id="${id}-feather" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+          <feGaussianBlur stdDeviation="${soft / 2}" />
+        </filter>
+        <mask id="${id}" maskUnits="userSpaceOnUse">
+          <rect x="0" y="0" width="100%" height="100%" fill="white" />
+          <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rad}" ry="${rad}"
+                fill="black" ${soft > 0 ? `filter="url(#${id}-feather)"` : ''} />
+        </mask>
+      </defs>
+      <rect x="0" y="0" width="100%" height="100%" fill="black" fill-opacity="${dim}" mask="url(#${id})" />
+    `;
+    document.body.appendChild(svg);
+    requestAnimationFrame(() => { svg.style.opacity = '1'; });
 
     setTimeout(() => {
-      overlay.style.transition = `opacity ${fadeOut}ms ease-out`;
-      overlay.style.opacity = '0';
-      setTimeout(() => overlay.remove(), fadeOut);
+      svg.style.transition = `opacity ${fadeOut}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+      svg.style.opacity = '0';
+      setTimeout(() => svg.remove(), fadeOut);
     }, duration);
-  }, { selector, preRect, duration, fadeIn, fadeOut, opacity, padding, attr: CAMERA_ATTR }, duration + fadeOut, wait);
+  }, { selector, preRect, duration, fadeIn, fadeOut, opacity, padding, radius, feather, attr: CAMERA_ATTR }, duration + fadeOut, wait);
 }
 
 export async function focusRing(
