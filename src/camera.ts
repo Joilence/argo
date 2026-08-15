@@ -107,6 +107,15 @@ async function runCameraEffect(
   }
 }
 
+/**
+ * Cutout defaults, in one place.
+ *
+ * The signature resolves them and the page function reuses them as its
+ * non-finite fallback, so the two cannot drift into disagreeing about what a
+ * default is.
+ */
+const SPOTLIGHT_DEFAULTS = { opacity: 0.7, padding: 12, radius: 10, feather: 12 } as const;
+
 export async function spotlight(
   page: Page,
   selectorOrLocator: SelectorOrLocator,
@@ -115,15 +124,15 @@ export async function spotlight(
   const duration = opts?.duration ?? 3000;
   const fadeIn = opts?.fadeIn ?? 400;
   const fadeOut = opts?.fadeOut ?? 400;
-  const opacity = opts?.opacity ?? 0.7;
-  const padding = opts?.padding ?? 12;
-  const radius = opts?.radius ?? 10;
-  const feather = opts?.feather ?? 12;
+  const opacity = opts?.opacity ?? SPOTLIGHT_DEFAULTS.opacity;
+  const padding = opts?.padding ?? SPOTLIGHT_DEFAULTS.padding;
+  const radius = opts?.radius ?? SPOTLIGHT_DEFAULTS.radius;
+  const feather = opts?.feather ?? SPOTLIGHT_DEFAULTS.feather;
   const wait = opts?.wait ?? false;
 
   const { selector, rect: preRect } = await resolveRect(page, selectorOrLocator);
 
-  await runCameraEffect(page, ({ selector, preRect, duration, fadeIn, fadeOut, opacity, padding, radius, feather, attr }: any) => {
+  await runCameraEffect(page, ({ selector, preRect, duration, fadeIn, fadeOut, opacity, padding, radius, feather, defaults, attr }: any) => {
     const rect = preRect ?? (() => {
       const target = document.querySelector(selector);
       if (!target) { console.warn('[argo] camera effect: no element found for selector "' + selector + '"'); return null; }
@@ -138,21 +147,23 @@ export async function spotlight(
     // the scrim) with a black rounded rect punched through it (drop the scrim),
     // and blurring that black rect is what feathers the hole. Corner radius and
     // edge softness then become two numbers instead of a rewrite.
-    // Every value below is interpolated into markup, so coerce first. These are
-    // all numbers coming from a bounding box or from typed options, but a NaN
-    // reaching the mask emits invalid SVG that renders as a blank scrim with no
-    // hole, which is the one failure this effect must not have again.
+
+    // The options are interpolated into markup, and TypeScript does not reach a
+    // caller writing plain JS, so coerce them. A non-numeric value would either
+    // inject into the mask or emit a NaN, and a NaN renders as a blank scrim
+    // with no hole: the one failure this effect must not have again. The rect
+    // needs none of this, coming from getBoundingClientRect or Playwright.
     const num = (v: unknown, fallback: number) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
-    const pad = num(padding, 12);
-    const rad = Math.max(0, num(radius, 10));
-    const soft = Math.max(0, num(feather, 12));
-    const dim = Math.min(1, Math.max(0, num(opacity, 0.7)));
+    const pad = num(padding, defaults.padding);
+    const rad = Math.max(0, num(radius, defaults.radius));
+    const soft = Math.max(0, num(feather, defaults.feather));
+    const dim = Math.min(1, Math.max(0, num(opacity, defaults.opacity)));
 
     const id = 'argo-spot-' + Math.random().toString(36).slice(2, 10);
-    const x = num(rect.left, 0) - pad;
-    const y = num(rect.top, 0) - pad;
-    const w = num(rect.width, 0) + pad * 2;
-    const h = num(rect.height, 0) + pad * 2;
+    const x = rect.left - pad;
+    const y = rect.top - pad;
+    const w = rect.width + pad * 2;
+    const h = rect.height + pad * 2;
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute(attr, 'spotlight');
@@ -192,7 +203,7 @@ export async function spotlight(
       svg.style.opacity = '0';
       setTimeout(() => svg.remove(), fadeOut);
     }, duration);
-  }, { selector, preRect, duration, fadeIn, fadeOut, opacity, padding, radius, feather, attr: CAMERA_ATTR }, duration + fadeOut, wait);
+  }, { selector, preRect, duration, fadeIn, fadeOut, opacity, padding, radius, feather, defaults: SPOTLIGHT_DEFAULTS, attr: CAMERA_ATTR }, duration + fadeOut, wait);
 }
 
 export async function focusRing(
