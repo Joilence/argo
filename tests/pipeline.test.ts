@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 vi.mock('../src/tts/generate.js', () => ({
@@ -146,6 +146,40 @@ describe('runPipeline', () => {
       manifestPath: join('demos', 'locales', `${DEMO_NAME}.de.scenes.json`),
       argoSubdir: `${DEMO_NAME}-de`,
     }));
+  });
+
+  it('exports the language run, not the base demo', async () => {
+    // Every step before export moved to the run's own directory while export
+    // kept reading `.argo/<demo>`. That produced the base demo's video with
+    // the language run's chapter markers, written over the base demo's mp4,
+    // and the language recording was never touched.
+    await runPipeline(DEMO_NAME, defaultConfig, { lang: 'de' });
+    expect(mockedExportVideo).toHaveBeenCalledWith(expect.objectContaining({
+      demoName: `${DEMO_NAME}-de`,
+      outputName: `${DEMO_NAME}.de`,
+    }));
+  });
+
+  it('leaves the base demo artifacts alone when a language runs', async () => {
+    await runPipeline(DEMO_NAME, defaultConfig, { lang: 'de' });
+    // Subtitles and metadata were keyed on the demo, so a language run left
+    // German cues beside the English video and a meta.json describing the
+    // wrong recording, which preview then reads headTrimMs out of.
+    // meta.json rather than the subtitles, because subtitle writing is
+    // best-effort and needs a manifest on disk that these fixtures do not
+    // provide. Both are keyed the same way, so this pins the naming.
+    const out = defaultConfig.outputDir;
+    expect(existsSync(join(out, `${DEMO_NAME}.de.meta.json`))).toBe(true);
+    expect(existsSync(join(out, `${DEMO_NAME}.meta.json`))).toBe(false);
+  });
+
+  it('keeps base-demo naming when no language is given', async () => {
+    await runPipeline(DEMO_NAME, defaultConfig);
+    expect(mockedExportVideo).toHaveBeenCalledWith(expect.objectContaining({
+      demoName: DEMO_NAME,
+      outputName: DEMO_NAME,
+    }));
+    expect(existsSync(join(defaultConfig.outputDir, `${DEMO_NAME}.meta.json`))).toBe(true);
   });
 
   it('passes correct options to record', async () => {

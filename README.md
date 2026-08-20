@@ -239,8 +239,27 @@ Options:
   --base-url <url>                 Override baseURL from config
   --headed                         Run browser in visible mode
   --all                            Run pipeline for all demos
+  --lang <code>                    Narrate from demosDir/locales/<demo>.<code>.scenes.json
   --port <number>                  Preview server port (default: auto)
 ```
+
+### Language variants
+
+`--lang de` narrates one demo from a translated manifest at
+`demosDir/locales/<demo>.de.scenes.json`, keeps that run's clips, timings and
+video in `.argo/<demo>-de/`, and writes `<demo>.de.mp4` beside the base demo's
+output. The manifests live in `locales/` rather than beside the base one
+because every `*.scenes.json` directly in `demosDir` is discovered as a demo.
+
+Unlike `export.variants`, which re-records one shared TTS pass at several
+viewports, a language variant shares nothing: different narration means
+different scene durations, so the browser is held for different lengths and
+the recording itself differs. A missing locale manifest is an error rather
+than a fallback to the base one.
+
+Wired into `argo pipeline` only. `argo export`, `argo validate` and `argo
+preview` still resolve the base manifest, so a language run cannot yet be
+re-exported or validated on its own.
 
 ### Overlay Blocks
 

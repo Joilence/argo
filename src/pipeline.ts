@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, copyFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { generateClips } from './tts/generate.js';
 import { record } from './record.js';
@@ -36,6 +36,7 @@ import {
   readScenesManifest,
   resolveArgoSubdir,
   resolveManifestPath,
+  resolveOutputName,
   shiftPlacements,
 } from './timeline.js';
 
@@ -143,6 +144,12 @@ export async function runPipeline(
 
   const lang = pipelineOpts?.lang;
   const argoSubdir = resolveArgoSubdir(demoName, lang);
+  // Working files are addressed by `argoSubdir`, written artifacts by
+  // `outputName`. They differ on purpose: `.argo/<demo>-<lang>/` matches the
+  // existing variant directories, while `<demo>.<lang>.mp4` matches the
+  // existing `<demo>.<variant>.mp4` artifacts. Both are `demoName` unchanged
+  // when no language is given.
+  const outputName = resolveOutputName(demoName, lang);
   const manifestPath = resolveManifestPath(config.demosDir, demoName, lang);
   const argoDir = join('.argo', argoSubdir);
   mkdirSync(argoDir, { recursive: true });
@@ -362,8 +369,8 @@ export async function runPipeline(
     // Generate subtitles on the final export timeline.
     const srt = generateSrt(finalPlacements, sceneTexts);
     const vtt = generateVtt(finalPlacements, sceneTexts);
-    writeFileSync(join(config.outputDir, `${demoName}.srt`), srt, 'utf-8');
-    writeFileSync(join(config.outputDir, `${demoName}.vtt`), vtt, 'utf-8');
+    writeFileSync(join(config.outputDir, `${outputName}.srt`), srt, 'utf-8');
+    writeFileSync(join(config.outputDir, `${outputName}.vtt`), vtt, 'utf-8');
   } catch {
     // Subtitles are best-effort — don't fail the pipeline
   }
@@ -376,7 +383,7 @@ export async function runPipeline(
   // Render overlay PNGs for imported videos (no Playwright recording step)
   const overlayPngs = await buildOverlayPngsForImport({
     argoDir: '.argo',
-    demoName,
+    demoName: argoSubdir,
     manifestPath,
     placements: finalPlacements,
     videoWidth: exportSize.width,
@@ -387,7 +394,8 @@ export async function runPipeline(
   // Step 4: Export final video
   console.log('🎞️  Cutting the final take...');
   const exportOptions: Parameters<typeof exportVideo>[0] = {
-    demoName,
+    demoName: argoSubdir,
+    outputName,
     argoDir: '.argo',
     outputDir: config.outputDir,
     preset: config.export.preset,
@@ -535,7 +543,7 @@ export async function runPipeline(
     },
     output: outputPath,
   };
-  writeFileSync(join(config.outputDir, `${demoName}.meta.json`), JSON.stringify(pipelineMeta, null, 2) + '\n', 'utf-8');
+  writeFileSync(join(config.outputDir, `${outputName}.meta.json`), JSON.stringify(pipelineMeta, null, 2) + '\n', 'utf-8');
 
   console.log(`\n🚀 That's a wrap! Video saved to: ${outputPath}`);
 
@@ -547,7 +555,9 @@ export async function runPipeline(
       console.log(`  📐 Variant: ${variant.name} (${variant.video.width}×${variant.video.height})`);
       console.log(`${'─'.repeat(50)}\n`);
 
-      const variantArgoDir = join('.argo', `${demoName}-${variant.name}`);
+      // Hangs off `argoSubdir`, not `demoName`, so a variant of a language run
+      // does not land in the base demo's variant directory and overwrite it.
+      const variantArgoDir = join('.argo', `${argoSubdir}-${variant.name}`);
       mkdirSync(variantArgoDir, { recursive: true });
 
       // Copy scene durations (TTS is shared)
@@ -557,11 +567,22 @@ export async function runPipeline(
         'utf-8',
       );
 
+      // And the word transcript, for the same reason. The recorder points the
+      // browser at this directory for both, so a sidecar that is not copied
+      // here is a sidecar the page cannot read: `loadTranscript()` returns null
+      // on a missing file without warning and `narration.wordTiming()` then
+      // returns an empty array, so effects scheduled on a word simply never
+      // fire in the variant and nothing reports it.
+      if (sceneTranscriptsPath && existsSync(sceneTranscriptsPath)) {
+        copyFileSync(sceneTranscriptsPath, join(variantArgoDir, '.scene-transcripts.json'));
+      }
+
       // Record at variant viewport
-      const variantSubdir = `${demoName}-${variant.name}`;
+      const variantSubdir = `${argoSubdir}-${variant.name}`;
       console.log('🎬 Rolling camera...');
       const variantRecord = await record(demoName, {
         demosDir: config.demosDir,
+        manifestPath,
         baseURL: config.baseURL,
         video: { width: variant.video.width, height: variant.video.height, fps: config.video.fps },
         browser: config.video.browser,
@@ -640,8 +661,8 @@ export async function runPipeline(
       } catch { /* ignore */ }
       mkdirSync(config.outputDir, { recursive: true });
       try {
-        writeFileSync(join(config.outputDir, `${demoName}.${variant.name}.srt`), generateSrt(variantPlacements, variantSceneTexts), 'utf-8');
-        writeFileSync(join(config.outputDir, `${demoName}.${variant.name}.vtt`), generateVtt(variantPlacements, variantSceneTexts), 'utf-8');
+        writeFileSync(join(config.outputDir, `${outputName}.${variant.name}.srt`), generateSrt(variantPlacements, variantSceneTexts), 'utf-8');
+        writeFileSync(join(config.outputDir, `${outputName}.${variant.name}.vtt`), generateVtt(variantPlacements, variantSceneTexts), 'utf-8');
       } catch { /* subtitles are best-effort */ }
 
       // Read camera moves for this variant if recorded

@@ -37,6 +37,35 @@ export function resolveArgoSubdir(demoName: string, lang?: string): string {
   return lang ? `${demoName}-${lang}` : demoName;
 }
 
+/**
+ * The basename a run's artifacts are written under in `outputDir`.
+ *
+ * Dot-separated rather than the dash used for `.argo` directories, so that a
+ * language lands beside the existing `<demo>.<variant>.mp4` artifacts instead
+ * of inventing a second convention. Without it a language run overwrites the
+ * base demo's video, subtitles and metadata, which is silent: the files are
+ * the right shape and describe a different recording.
+ */
+export function resolveOutputName(demoName: string, lang?: string): string {
+  return lang ? `${demoName}.${lang}` : demoName;
+}
+
+/**
+ * Reject a language tag that cannot safely be spliced into a path.
+ *
+ * `lang` reaches `join(demosDir, 'locales', ...)` on the read side and a
+ * `mkdirSync` under `.argo/` on the write side, so an unchecked `../../..`
+ * both reads outside the demos directory and writes outside `.argo`. Region
+ * subtags are legal, which is why this is not simply alphanumeric.
+ */
+export function assertValidLang(lang: string): void {
+  if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(lang)) {
+    throw new Error(
+      `invalid --lang "${lang}". Expected a language tag such as "de", "fr" or "zh-CN".`,
+    );
+  }
+}
+
 export function readScenesManifest(manifestPath: string): SceneManifestEntry[] {
   const raw = JSON.parse(readFileSync(manifestPath, 'utf-8'));
   if (!Array.isArray(raw)) {
