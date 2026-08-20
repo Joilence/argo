@@ -20,6 +20,9 @@ export interface RecordOptions {
   headed?: boolean;
   /** Override the .argo subdirectory name (for variants). Default: demoName. */
   argoSubdir?: string;
+  /** Override the scene manifest. Default: `<demosDir>/<demoName>.scenes.json`.
+   *  Set it for a language variant, whose overlays are translated too. */
+  manifestPath?: string;
   /** Auto-annotate Playwright interactions in the recording. */
   showActions?: boolean | ShowActionsConfig;
   /** Capture a JPEG per scene mark for the preview scrubber. Default: true. */
@@ -190,7 +193,10 @@ export async function record(demoName: string, options: RecordOptions): Promise<
 
   // Start asset server if overlay manifest has image assets
   let assetServer: AssetServer | undefined;
-  const overlayManifestPath = path.join(options.demosDir, `${demoName}.scenes.json`);
+  // One resolution, reused below for the page-side env var, so the overlays
+  // the recorder validates are the overlays the browser renders.
+  const overlayManifestPath =
+    options.manifestPath ?? path.join(options.demosDir, `${demoName}.scenes.json`);
   try {
     const overlayEntries = await loadOverlayManifest(overlayManifestPath);
     if (overlayEntries && hasImageAssets(overlayEntries)) {
@@ -291,9 +297,15 @@ export async function record(demoName: string, options: RecordOptions): Promise<
           ARGO_AUTO_BACKGROUND: options.autoBackground ? '1' : '',
           ARGO_DEFAULT_PLACEMENT: options.defaultPlacement ?? '',
           ARGO_ALLOW_RAW_GSAP: options.allowRawGsap ? '1' : '',
-          ARGO_SCENE_DURATIONS_PATH: path.resolve(path.join('.argo', demoName, '.scene-durations.json')),
-          ARGO_TRANSCRIPT_PATH: path.resolve(path.join('.argo', demoName, '.scene-transcripts.json')),
-          ARGO_OVERLAYS_PATH: path.resolve(path.join(options.demosDir, `${demoName}.scenes.json`)),
+          // Both read from this run's own `.argo` directory, not the demo's.
+          // They used to be built from `demoName` while everything else used
+          // `argoDir`, so a variant run told the browser to read the base
+          // demo's durations and transcript. Viewport variants never noticed,
+          // because they share one TTS pass and the two files are identical;
+          // an audio variant would have read another language's timings.
+          ARGO_SCENE_DURATIONS_PATH: path.resolve(path.join(argoDir, '.scene-durations.json')),
+          ARGO_TRANSCRIPT_PATH: path.resolve(path.join(argoDir, '.scene-transcripts.json')),
+          ARGO_OVERLAYS_PATH: path.resolve(overlayManifestPath),
         },
       }, (error, stdout, stderr) => {
         clearInterval(progressPoll);

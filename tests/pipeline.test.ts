@@ -121,13 +121,31 @@ describe('runPipeline', () => {
 
   it('passes correct options to generateClips', async () => {
     await runPipeline(DEMO_NAME, defaultConfig);
-    expect(mockedGenerateClips).toHaveBeenCalledWith({
+    // objectContaining for the same reason the record assertion below gives:
+    // an exact match turns every future field into a failing test.
+    expect(mockedGenerateClips).toHaveBeenCalledWith(expect.objectContaining({
       manifestPath: `demos/${DEMO_NAME}.scenes.json`,
       demoName: DEMO_NAME,
+      argoSubdir: DEMO_NAME,
       engine: mockEngine,
       projectRoot: '.',
       defaults: { voice: 'af_heart', speed: 1.0 },
-    });
+    }));
+  });
+
+  it('reads a language variant from locales/ and keeps its clips apart', async () => {
+    await runPipeline(DEMO_NAME, defaultConfig, { lang: 'de' });
+    expect(mockedGenerateClips).toHaveBeenCalledWith(expect.objectContaining({
+      manifestPath: join('demos', 'locales', `${DEMO_NAME}.de.scenes.json`),
+      argoSubdir: `${DEMO_NAME}-de`,
+    }));
+    // The recorder has to agree, or the browser renders the base demo's
+    // overlays over the translated narration and reads another locale's
+    // scene durations.
+    expect(mockedRecord).toHaveBeenCalledWith(DEMO_NAME, expect.objectContaining({
+      manifestPath: join('demos', 'locales', `${DEMO_NAME}.de.scenes.json`),
+      argoSubdir: `${DEMO_NAME}-de`,
+    }));
   });
 
   it('passes correct options to record', async () => {

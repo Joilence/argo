@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { schedulePlacements, type Placement, type SceneTiming } from './tts/align.js';
 import { ClipCache, type ManifestEntry } from './tts/cache.js';
 import { parseWavHeader } from './tts/engine.js';
@@ -10,6 +11,30 @@ export interface SceneManifestEntry {
   speed?: number;
   lang?: string;
   [key: string]: unknown;
+}
+
+/**
+ * Where a demo's scene manifest lives, for the base demo or for one language.
+ *
+ * Language manifests sit in a `locales/` subdirectory rather than beside the
+ * base one, because `discoverDemos` treats every `*.scenes.json` in `demosDir`
+ * as a demo: a sibling `checkout.de.scenes.json` would register as a phantom
+ * demo named `checkout.de` whose `.demo.ts` does not exist, and `--all` would
+ * then fail on it.
+ *
+ * There is deliberately no fallback to the base manifest. A missing translation
+ * would otherwise narrate the demo in the source language while every other
+ * artifact of the run claimed it was localised.
+ */
+export function resolveManifestPath(demosDir: string, demoName: string, lang?: string): string {
+  return lang
+    ? join(demosDir, 'locales', `${demoName}.${lang}.scenes.json`)
+    : join(demosDir, `${demoName}.scenes.json`);
+}
+
+/** The `.argo` subdirectory for a run, which is per language so that clips, timings and word transcripts of two locales cannot be crossed. */
+export function resolveArgoSubdir(demoName: string, lang?: string): string {
+  return lang ? `${demoName}-${lang}` : demoName;
 }
 
 export function readScenesManifest(manifestPath: string): SceneManifestEntry[] {
