@@ -34,6 +34,8 @@ import {
   buildSceneTexts,
   computeHeadTrimMs,
   readScenesManifest,
+  resolveArgoSubdir,
+  resolveManifestPath,
   shiftPlacements,
 } from './timeline.js';
 
@@ -41,6 +43,15 @@ export interface PipelineOptions {
   headed?: boolean;
   /** Override `video.retries` for this run. */
   retries?: number;
+  /** Narrate this run from `<demosDir>/locales/<demo>.<lang>.scenes.json`
+   *  instead of the base manifest, and keep its clips, timings and video in
+   *  `.argo/<demo>-<lang>/`.
+   *
+   *  Unlike `export.variants`, which re-record one TTS pass at several
+   *  viewports, a language variant cannot share anything: its scenes are a
+   *  different length, so the browser is held for different durations and the
+   *  recording itself differs. */
+  lang?: string;
 }
 
 /**
@@ -130,14 +141,18 @@ export async function runPipeline(
 
   const exportSize = resolveExportSize(config);
 
-  const argoDir = join('.argo', demoName);
+  const lang = pipelineOpts?.lang;
+  const argoSubdir = resolveArgoSubdir(demoName, lang);
+  const manifestPath = resolveManifestPath(config.demosDir, demoName, lang);
+  const argoDir = join('.argo', argoSubdir);
   mkdirSync(argoDir, { recursive: true });
 
   // Step 1: Generate TTS clips
   console.log('🎙️  Brewing voiceover clips...');
   const clipResults = await generateClips({
-    manifestPath: `${config.demosDir}/${demoName}.scenes.json`,
+    manifestPath,
     demoName,
+    argoSubdir,
     engine: config.tts.engine,
     projectRoot: '.',
     defaults: { voice: config.tts.defaultVoice, speed: config.tts.defaultSpeed },
@@ -177,6 +192,8 @@ export async function runPipeline(
   console.log('🎬 Rolling camera...');
   const { timingPath, videoPath } = await record(demoName, {
     demosDir: config.demosDir,
+    argoSubdir,
+    manifestPath,
     baseURL: config.baseURL,
     video: { width: config.video.width, height: config.video.height, fps: config.video.fps },
     browser: config.video.browser,
@@ -288,7 +305,6 @@ export async function runPipeline(
   }
 
   // Read per-scene playback speeds from scenes manifest
-  const manifestPath = `${config.demosDir}/${demoName}.scenes.json`;
   const sceneSpeeds: SceneSpeedMap = {};
   let rawManifest: Array<{ scene?: string; playbackSpeed?: number; post?: Array<{ type?: string; atMs?: number; durationMs?: number }> }> = [];
   try {

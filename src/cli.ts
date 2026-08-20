@@ -345,7 +345,8 @@ export function createProgram(): Command {
     .option('--headed', 'run browser in headed mode (visible window)')
     .option('--all', 'run pipeline for all demos in demosDir')
     .option('--retries <count>', 'retry the recording test on failure (overrides video.retries)', parseInt)
-    .action(async (demo: string | undefined, cmdOpts: { browser?: string; baseUrl?: string; headed?: boolean; all?: boolean; retries?: number }) => {
+    .option('--lang <code>', 'narrate from demosDir/locales/<demo>.<code>.scenes.json')
+    .action(async (demo: string | undefined, cmdOpts: { browser?: string; baseUrl?: string; headed?: boolean; all?: boolean; retries?: number; lang?: string }) => {
       const configPath = program.opts().config;
       const loaded = await ensureTTSEngine(await loadConfigForDemo(demo, configPath));
       let config = cmdOpts.browser
@@ -357,13 +358,21 @@ export function createProgram(): Command {
 
       if (cmdOpts.all) {
         const demos = (await import('./pipeline.js')).discoverDemos(config.demosDir);
-        const results = await runBatchPipeline(config, { headed: cmdOpts.headed, retries: cmdOpts.retries });
+        const results = await runBatchPipeline(config, {
+          headed: cmdOpts.headed,
+          retries: cmdOpts.retries,
+          lang: cmdOpts.lang,
+        });
         if (results.length < demos.length) {
           process.exitCode = 1;
         }
       } else if (demo) {
         validateDemoName(demo);
-        await runPipeline(demo, config, { headed: cmdOpts.headed, retries: cmdOpts.retries });
+        await runPipeline(demo, config, {
+          headed: cmdOpts.headed,
+          retries: cmdOpts.retries,
+          lang: cmdOpts.lang,
+        });
       } else {
         throw new Error('Provide a demo name or use --all to run all demos.');
       }

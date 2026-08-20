@@ -18,6 +18,11 @@ export interface TranscribeConfig {
 export interface GenerateClipsOptions {
   manifestPath: string;
   demoName: string;
+  /** Directory under `.argo/` holding this run's clips and transcripts.
+   *  Defaults to `demoName`. Set it when one demo has several audio tracks,
+   *  as language variants do, so one locale's clips cannot be served for
+   *  another. */
+  argoSubdir?: string;
   engine: TTSEngine;
   projectRoot: string;
   defaults?: { voice?: string; speed?: number };
@@ -40,6 +45,9 @@ export interface ClipResult {
 
 export async function generateClips(options: GenerateClipsOptions): Promise<ClipResult[]> {
   const { manifestPath, demoName, engine, projectRoot, defaults } = options;
+  // Clips and transcripts are addressed by the run's own subdirectory, not by
+  // the demo, so two audio tracks of one demo stay apart.
+  const argoSubdir = options.argoSubdir ?? demoName;
 
   // 1. Check manifest exists
   if (!fs.existsSync(manifestPath)) {
@@ -87,13 +95,13 @@ export async function generateClips(options: GenerateClipsOptions): Promise<Clip
         speed: (r.speed as number | undefined) ?? defaults?.speed,
         lang: r.lang as string | undefined,
       };
-      return { entry, clipPath: cache.getClipPath(demoName, entry) };
+      return { entry, clipPath: cache.getClipPath(argoSubdir, entry) };
     });
 
   // Log per-scene status and generate uncached clips sequentially —
   // Kokoro's ONNX runtime is not safe for concurrent generate() calls.
   for (const { entry } of entries) {
-    if (cache.isCached(demoName, entry)) {
+    if (cache.isCached(argoSubdir, entry)) {
       console.log(`  ▸ ${entry.scene} (cached)`);
     } else {
       process.stdout.write(`  ▸ ${entry.scene} (generating...)`);
@@ -102,7 +110,7 @@ export async function generateClips(options: GenerateClipsOptions): Promise<Clip
         speed: entry.speed,
         lang: entry.lang,
       });
-      cache.cacheClip(demoName, entry, wavBuffer);
+      cache.cacheClip(argoSubdir, entry, wavBuffer);
       process.stdout.write(' done\n');
     }
   }
@@ -119,9 +127,9 @@ export async function generateClips(options: GenerateClipsOptions): Promise<Clip
 
     let warmed = false;
     for (const { entry, clipPath } of entries) {
-      const transcriptPath = cache.getTranscriptPath(demoName, entry, model);
+      const transcriptPath = cache.getTranscriptPath(argoSubdir, entry, model);
 
-      if (cache.isTranscriptCached(demoName, entry, model)) {
+      if (cache.isTranscriptCached(argoSubdir, entry, model)) {
         console.log(`  ▸ ${entry.scene} (cached)`);
         const words = JSON.parse(fs.readFileSync(transcriptPath, 'utf-8')) as WordTiming[];
         transcripts.set(entry.scene, { words, path: transcriptPath });
