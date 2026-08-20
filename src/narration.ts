@@ -613,7 +613,18 @@ export class NarrationTimeline {
   }
 }
 
-const normalizeWord = (s: string): string => s.toLowerCase().replace(/[^\w']/g, '');
+/**
+ * Strip a transcribed token down to what two spellings of the same word share:
+ * case and surrounding punctuation, which Whisper attaches inconsistently.
+ *
+ * `\p{L}\p{N}` with the `u` flag rather than `\w`, which is ASCII-only. Under
+ * `\w` every Cyrillic, Han, Devanagari, Greek, Hebrew or Arabic token stripped
+ * to the empty string, so a caller asking for any anchor matched whichever word
+ * came first in the scene and the effect fired at the wrong moment. It returned
+ * a plausible number rather than null, so nothing reported it. Accented Latin
+ * was quietly mangled the same way: "Anträge" became "antrge".
+ */
+const normalizeWord = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
 
 export interface WordTiming {
   text: string;
