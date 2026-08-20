@@ -266,6 +266,47 @@ export function buildAtempoChain(speed: number): string[] {
   return ['-filter:a', stages.map(s => `atempo=${fmt(s)}`).join(',')];
 }
 
+/** A headerless audio stream. ffmpeg cannot sniff one, so it has to be told. */
+export interface RawAudioFormat {
+  /** ffmpeg demuxer name, e.g. `s16le` for signed 16-bit little-endian. */
+  codec: string;
+  sampleRate: number;
+  channels: number;
+}
+
+/**
+ * Read a raw-PCM media type into the arguments ffmpeg needs to open it.
+ *
+ * Gemini's TTS models answer with `audio/L16;codec=pcm;rate=24000`, which is
+ * RFC 2586 linear PCM: sample data and nothing else, no RIFF header and no
+ * magic bytes. Handed to `ffmpeg -i pipe:0` it fails with "Invalid data found
+ * when processing input", because there is nothing there to recognise.
+ *
+ * Returns null for anything self-describing (MP3, OGG, WAV), which should go
+ * through ffmpeg's own probing instead.
+ */
+export function parseRawAudioMime(mimeType: string | undefined): RawAudioFormat | null {
+  if (!mimeType) return null;
+  const [type, ...params] = mimeType.split(';').map(part => part.trim());
+  // L16 is the only raw encoding the engines here emit. L8 and L24 exist in RFC
+  // 2586 but nothing returns them, so they are left unhandled rather than
+  // guessed at.
+  if (type.toLowerCase() !== 'audio/l16') return null;
+
+  const value = (name: string): string | undefined =>
+    params.find(p => p.toLowerCase().startsWith(`${name}=`))?.split('=')[1];
+
+  const rate = Number(value('rate'));
+  const channels = Number(value('channels'));
+  return {
+    codec: 's16le',
+    // RFC 2586 makes rate mandatory, but a missing or junk one would otherwise
+    // reach the command line as NaN and resample to silence.
+    sampleRate: Number.isFinite(rate) && rate > 0 ? rate : 24000,
+    channels: Number.isFinite(channels) && channels > 0 ? channels : 1,
+  };
+}
+
 /**
  * Convert arbitrary audio (MP3, OGG, PCM, etc.) to Argo's WAV format
  * (mono, Float32, 24kHz) using ffmpeg.
@@ -273,10 +314,22 @@ export function buildAtempoChain(speed: number): string[] {
  * `speed` is applied here because engines that render server-side (ElevenLabs,
  * Gemini) have no native rate control — this conversion is the only place the
  * rate can change. Engines with their own speed parameter must not use it.
+ *
+ * `inputFormat` describes a headerless stream. Pass it whenever the source is
+ * raw PCM; omit it and ffmpeg probes the container itself.
  */
-export function convertToWav(audioBuffer: Buffer, speed = 1): Buffer {
+export function convertToWav(
+  audioBuffer: Buffer,
+  speed = 1,
+  inputFormat?: RawAudioFormat | null,
+): Buffer {
   const { execFileSync } = childProcess;
+  // Sniffing is the default; an explicit format is only for headerless input.
+  const inputArgs = inputFormat
+    ? ['-f', inputFormat.codec, '-ar', String(inputFormat.sampleRate), '-ac', String(inputFormat.channels)]
+    : [];
   const result = execFileSync('ffmpeg', [
+    ...inputArgs,
     '-i', 'pipe:0',
     ...buildAtempoChain(speed),
     '-f', 'wav',
