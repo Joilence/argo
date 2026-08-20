@@ -268,19 +268,38 @@ export function buildAtempoChain(speed: number): string[] {
 
 /** A headerless audio stream. ffmpeg cannot sniff one, so it has to be told. */
 export interface RawAudioFormat {
-  /** ffmpeg demuxer name, e.g. `s16le` for signed 16-bit little-endian. */
-  codec: string;
+  /** ffmpeg demuxer name, passed to `-f`. `s16le` for signed 16-bit
+   *  little-endian. Not a codec: `-c:a` would reject it. */
+  format: string;
   sampleRate: number;
   channels: number;
+}
+
+/** One parameter's value, tolerating the spacing and quoting RFC 2045 allows. */
+function mimeParam(params: string[], name: string): string | undefined {
+  const pattern = new RegExp(`^${name}\\s*=\\s*(.*)$`, 'i');
+  for (const param of params) {
+    const match = pattern.exec(param);
+    if (match) return match[1].trim().replace(/^"(.*)"$/s, '$1');
+  }
+  return undefined;
 }
 
 /**
  * Read a raw-PCM media type into the arguments ffmpeg needs to open it.
  *
- * Gemini's TTS models answer with `audio/L16;codec=pcm;rate=24000`, which is
- * RFC 2586 linear PCM: sample data and nothing else, no RIFF header and no
- * magic bytes. Handed to `ffmpeg -i pipe:0` it fails with "Invalid data found
- * when processing input", because there is nothing there to recognise.
+ * Gemini's TTS models answer with `audio/L16;codec=pcm;rate=24000`: sample data
+ * and nothing else, no RIFF header and no magic bytes. Handed to
+ * `ffmpeg -i pipe:0` it fails with "Invalid data found when processing input",
+ * because there is nothing there to recognise.
+ *
+ * The layout is little-endian, and this is a deliberate deviation from the
+ * spec rather than an oversight: RFC 2586 section 3 defines L16 as network
+ * byte order, but Google sends little-endian (its own cookbook writes the
+ * decoded bytes straight into Python's `wave`, which cannot do anything else,
+ * and the Live API docs say so outright). `openai.ts` hardcodes `readInt16LE`
+ * for the same provider-driven reason. A second provider that actually
+ * conformed would need `s16be` and must not reuse this blindly.
  *
  * Returns null for anything self-describing (MP3, OGG, WAV), which should go
  * through ffmpeg's own probing instead.
@@ -288,21 +307,30 @@ export interface RawAudioFormat {
 export function parseRawAudioMime(mimeType: string | undefined): RawAudioFormat | null {
   if (!mimeType) return null;
   const [type, ...params] = mimeType.split(';').map(part => part.trim());
-  // L16 is the only raw encoding the engines here emit. L8 and L24 exist in RFC
-  // 2586 but nothing returns them, so they are left unhandled rather than
-  // guessed at.
+  // L16 is the only raw encoding the engines here emit. `audio/L8` (RFC 3551)
+  // and `audio/L24` (RFC 3190) exist but nothing returns them, so they are
+  // left unhandled rather than guessed at.
   if (type.toLowerCase() !== 'audio/l16') return null;
 
-  const value = (name: string): string | undefined =>
-    params.find(p => p.toLowerCase().startsWith(`${name}=`))?.split('=')[1];
-
-  const rate = Number(value('rate'));
-  const channels = Number(value('channels'));
+  const rawRate = mimeParam(params, 'rate');
+  const rate = Number(rawRate);
+  if (!Number.isFinite(rate) || rate <= 0) {
+    // Refusing beats guessing. Declaring 24000 for a stream that is really
+    // 16000 does not fail: it returns a clip a third shorter at 1.5x pitch,
+    // exit code 0, and argo derives scene durations from clip length, so every
+    // wait in the recording shortens and nothing reports a problem. RFC 2586
+    // lists `rate` as required, so a missing one is malformed input.
+    throw new Error(
+      `cannot read a sample rate from "${mimeType}". Raw PCM carries no header, ` +
+        'so the rate has to come from the media type.',
+    );
+  }
+  // Unlike `rate`, the channel default is the RFC's own: "channels ... defaults
+  // to 1" in the L16 registration.
+  const channels = Number(mimeParam(params, 'channels'));
   return {
-    codec: 's16le',
-    // RFC 2586 makes rate mandatory, but a missing or junk one would otherwise
-    // reach the command line as NaN and resample to silence.
-    sampleRate: Number.isFinite(rate) && rate > 0 ? rate : 24000,
+    format: 's16le',
+    sampleRate: rate,
     channels: Number.isFinite(channels) && channels > 0 ? channels : 1,
   };
 }
@@ -326,7 +354,7 @@ export function convertToWav(
   const { execFileSync } = childProcess;
   // Sniffing is the default; an explicit format is only for headerless input.
   const inputArgs = inputFormat
-    ? ['-f', inputFormat.codec, '-ar', String(inputFormat.sampleRate), '-ac', String(inputFormat.channels)]
+    ? ['-f', inputFormat.format, '-ar', String(inputFormat.sampleRate), '-ac', String(inputFormat.channels)]
     : [];
   const result = execFileSync('ffmpeg', [
     ...inputArgs,
