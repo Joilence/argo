@@ -7,6 +7,7 @@ import { record } from './record.js';
 import { generateClips } from './tts/generate.js';
 import { exportVideo } from './export.js';
 import { runPipeline, runBatchPipeline } from './pipeline.js';
+import { assertValidLang } from './timeline.js';
 import { init, initFrom } from './init.js';
 import { importVideo } from './import.js';
 import { buildOverlayPngsForImport } from './overlays/render-to-png.js';
@@ -355,6 +356,9 @@ export function createProgram(): Command {
       if (cmdOpts.baseUrl) {
         config = { ...config, baseURL: cmdOpts.baseUrl };
       }
+
+      // Checked at the boundary, before it reaches a path join or a mkdir.
+      if (cmdOpts.lang) assertValidLang(cmdOpts.lang);
 
       if (cmdOpts.all) {
         const demos = (await import('./pipeline.js')).discoverDemos(config.demosDir);

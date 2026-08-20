@@ -16,6 +16,11 @@ import { getGpuEncoderName, resolveEncoder, type GpuEncoder } from './gpu-encode
 
 export interface ExportOptions {
   demoName: string;
+  /** Basename for the written artifacts. Defaults to `demoName`.
+   *  Set it when the run's `.argo` directory and its output file need
+   *  different names, as a language variant does: it reads
+   *  `.argo/<demo>-<lang>/` and writes `<demo>.<lang>.mp4`. */
+  outputName?: string;
   argoDir: string;
   outputDir: string;
   preset?: string;
@@ -207,7 +212,7 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
     mkdirSync(outputDir, { recursive: true });
   }
 
-  const outputPath = join(outputDir, `${demoName}.mp4`);
+  const outputPath = join(outputDir, `${options.outputName ?? demoName}.mp4`);
 
   if (thumbnailPath && !existsSync(thumbnailPath)) {
     console.warn(

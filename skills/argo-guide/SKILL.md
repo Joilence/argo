@@ -276,6 +276,7 @@ npx argo pipeline <name>                    # Full pipeline (recommended)
 npx argo pipeline --all                     # Run pipeline for ALL demos in demosDir
 npx argo pipeline <name> --browser webkit   # Override browser
 npx argo pipeline <name> --base-url <url>   # Override baseURL
+npx argo pipeline <name> --lang de          # Narrate from demosDir/locales/<name>.de.scenes.json
 npx argo validate <name>                    # Dry run — checks scene name consistency
 npx argo preview <name>                     # Interactive replay viewer (iterate without re-recording)
 npx argo preview                            # Multi-demo dashboard (lists all demos with status)
