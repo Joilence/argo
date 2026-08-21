@@ -295,11 +295,20 @@ function mimeParam(params: string[], name: string): string | undefined {
  *
  * The layout is little-endian, and this is a deliberate deviation from the
  * spec rather than an oversight: RFC 2586 section 3 defines L16 as network
- * byte order, but Google sends little-endian (its own cookbook writes the
- * decoded bytes straight into Python's `wave`, which cannot do anything else,
- * and the Live API docs say so outright). `openai.ts` hardcodes `readInt16LE`
- * for the same provider-driven reason. A second provider that actually
- * conformed would need `s16be` and must not reuse this blindly.
+ * byte order, and Google sends little-endian anyway.
+ *
+ * Worth separating how well each half of that is established, because the
+ * cost of being wrong is silent. Little-endian on the *Live API* is
+ * documented outright. On the `generateContent` path this engine uses it is
+ * not documented anywhere official; it is inferred from Google's own samples,
+ * which write the decoded bytes straight into Python's `wave`, and that
+ * module cannot emit anything else. `openai.ts` hardcodes `readInt16LE` for
+ * the same provider-driven reason.
+ *
+ * `tests/tts/raw-pcm-roundtrip.test.ts` is what turns the inference into
+ * something checkable: it decodes a synthesized sine through real ffmpeg and
+ * fails if the byte order is wrong. A second provider that actually conformed
+ * to the RFC would need `s16be` and must not reuse this blindly.
  *
  * Returns null for anything self-describing (MP3, OGG, WAV), which should go
  * through ffmpeg's own probing instead.
