@@ -27,6 +27,15 @@ const TRANSCRIPT = {
     hi: WORDS(['दो', 1], ['अनुरोध,', 2], ['स्वीकृत।', 3]),
     de: WORDS(['Zwei', 1], ['Anträge,', 2], ['genehmigt.', 3]),
     en: WORDS(['Two', 1], ['requests,', 2], ['approved.', 3]),
+
+    // Pairs that differ only by a combining mark. These are the cases that
+    // survived the first fix: dropping \p{M} collapses each pair onto one
+    // spelling, so the anchor lands on whichever came first.
+    hiMarks: WORDS(['कल', 1], ['है', 2], ['काल', 3]),
+    thMarks: WORDS(['ไม้', 1], ['คือ', 2], ['ไม่', 3]),
+
+    // A leading token with no letters or digits at all.
+    punct: WORDS(['...', 1], ['hello', 2], ['world', 3]),
   },
 };
 
@@ -84,5 +93,32 @@ describe('atWord across scripts', () => {
   it('returns null for a word the scene does not contain', () => {
     expect(atStartOf('ru').atWord('ru', 'отклонены')).toBeNull();
     expect(atStartOf('zh').atWord('zh', '批准')).toBeNull();
+  });
+});
+
+describe('atWord and combining marks', () => {
+  it.each([
+    ['hiMarks', 'काल', 'कल'],
+    ['thMarks', 'ไม่', 'ไม้'],
+  ])('%s: anchors on %s rather than the mark-stripped %s', (scene, anchor) => {
+    const ms = atStartOf(scene).atWord(scene, anchor);
+    expect(ms).toBeGreaterThan(2500);
+    expect(ms).toBeLessThanOrEqual(3000);
+  });
+
+  it('matches a decomposed anchor against a precomposed transcript', () => {
+    // Visually identical, and a script pulled through a filesystem path or a
+    // copy-paste can carry either. Without an NFC pass this returns null
+    // forever, which is indistinguishable from "the word is already spoken".
+    expect(atStartOf('de').atWord('de', 'Anträge'.normalize('NFD'))).toBeGreaterThan(1500);
+  });
+
+  it('refuses an anchor that strips to nothing', () => {
+    // Both the anchor and the scene's first token normalise to '', so without
+    // a guard they compare equal and the caller gets 1000ms for punctuation.
+    expect(atStartOf('punct').atWord('punct', '...')).toBeNull();
+    expect(atStartOf('punct').atWord('punct', '?!')).toBeNull();
+    // The real words in that scene stay reachable.
+    expect(atStartOf('punct').atWord('punct', 'world')).toBeGreaterThan(2500);
   });
 });

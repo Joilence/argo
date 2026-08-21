@@ -603,6 +603,10 @@ export class NarrationTimeline {
     if (!words?.length) return null;
 
     const normalized = normalizeWord(target);
+    // An anchor of pure punctuation strips to nothing, and so does any token
+    // of pure punctuation, so without this the first such token in the scene
+    // matches and the caller gets a confident wrong time.
+    if (!normalized) return null;
     for (const w of words) {
       if (normalizeWord(w.text) !== normalized) continue;
       const elapsedInSceneMs = (Date.now() - this.startTime) - markMs;
@@ -617,14 +621,23 @@ export class NarrationTimeline {
  * Strip a transcribed token down to what two spellings of the same word share:
  * case and surrounding punctuation, which Whisper attaches inconsistently.
  *
- * `\p{L}\p{N}` with the `u` flag rather than `\w`, which is ASCII-only. Under
- * `\w` every Cyrillic, Han, Devanagari, Greek, Hebrew or Arabic token stripped
- * to the empty string, so a caller asking for any anchor matched whichever word
- * came first in the scene and the effect fired at the wrong moment. It returned
- * a plausible number rather than null, so nothing reported it. Accented Latin
- * was quietly mangled the same way: "Anträge" became "antrge".
+ * `\p{M}` belongs with `\p{L}\p{N}`: combining marks are not decoration in
+ * every script. Devanagari matras and the virama, Thai vowel and tone marks
+ * and Arabic harakat carry the sound, so dropping them collapses distinct
+ * words onto each other and "काल" matches "कल".
+ *
+ * NFC first, because keeping marks means a decomposed spelling stops equalling
+ * a precomposed one, and the two are visually identical.
+ *
+ * The `u` flag is load-bearing: without it `\w` is ASCII-only and every
+ * non-Latin token strips to the empty string.
+ *
+ * Errors here do not announce themselves, which is why three versions of this
+ * shipped: a wrong match returns a plausible number, a missed match returns
+ * null, and `atWord` already returns null for several legitimate reasons.
  */
-const normalizeWord = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
+const normalizeWord = (s: string): string =>
+  s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}']/gu, '');
 
 export interface WordTiming {
   text: string;
