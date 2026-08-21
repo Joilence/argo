@@ -92,6 +92,11 @@ describe('record', () => {
           ARGO_SCENE_THUMBS: '1',
           ARGO_THUMBS_DIR: resolve(join('.argo', 'demo', 'thumbs')),
           ARGO_LIVE_FRAME_PATH: resolve(join('.argo', 'demo', '.live-frame.jpg')),
+          // These two are what the page reads to size its waits and to anchor
+          // effects on a spoken word, so they have to name this run's own
+          // directory. See the argoSubdir case below.
+          ARGO_SCENE_DURATIONS_PATH: resolve(join('.argo', 'demo', '.scene-durations.json')),
+          ARGO_TRANSCRIPT_PATH: resolve(join('.argo', 'demo', '.scene-transcripts.json')),
           BASE_URL: 'http://localhost:4321',
         }),
       }),
@@ -99,6 +104,61 @@ describe('record', () => {
     );
     // The thumbs/ dir should be created by record() so the runtime can write into it.
     expect(existsSync(join(tempDir, '.argo', 'demo', 'thumbs'))).toBe(true);
+  });
+
+  it('points every page-side path at argoSubdir, not the demo', async () => {
+    // These two were built from `demoName` while every other path in record()
+    // used argoDir, so a run with its own audio (a language variant) told the
+    // browser to read the base demo's durations and word transcript. Viewport
+    // variants never noticed because they share one TTS pass, and a missing
+    // transcript makes loadTranscript() return null and wordTiming() return []
+    // with no warning, so there was nothing to see.
+    mockSubprocessSuccess();
+
+    await record('demo', {
+      demosDir: 'custom-demos',
+      baseURL: 'http://localhost:4321',
+      video: { width: 1280, height: 720 },
+      argoSubdir: 'demo-de',
+    });
+
+    expect(execFileMock).toHaveBeenCalledWith(
+      'npx',
+      expect.arrayContaining([join('.argo', 'demo-de', 'playwright.record.config.mjs')]),
+      expect.objectContaining({
+        env: expect.objectContaining({
+          ARGO_OUTPUT_DIR: resolve(join('.argo', 'demo-de')),
+          ARGO_SCENE_DURATIONS_PATH: resolve(join('.argo', 'demo-de', '.scene-durations.json')),
+          ARGO_TRANSCRIPT_PATH: resolve(join('.argo', 'demo-de', '.scene-transcripts.json')),
+        }),
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it('lets a language variant override the scene manifest', async () => {
+    // The overlays the recorder validates must be the overlays the browser
+    // renders, or a translated run burns the source language's cards over
+    // translated narration.
+    mockSubprocessSuccess();
+    const manifestPath = join('custom-demos', 'locales', 'demo.de.scenes.json');
+
+    await record('demo', {
+      demosDir: 'custom-demos',
+      baseURL: 'http://localhost:4321',
+      video: { width: 1280, height: 720 },
+      argoSubdir: 'demo-de',
+      manifestPath,
+    });
+
+    expect(execFileMock).toHaveBeenCalledWith(
+      'npx',
+      expect.any(Array),
+      expect.objectContaining({
+        env: expect.objectContaining({ ARGO_OVERLAYS_PATH: resolve(manifestPath) }),
+      }),
+      expect.any(Function),
+    );
   });
 
   it('serializes showActions config to ARGO_SHOW_ACTIONS env', async () => {

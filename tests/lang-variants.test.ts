@@ -67,9 +67,11 @@ describe('resolveOutputName', () => {
     expect(resolveOutputName('checkout')).toBe('checkout');
   });
 
-  it('separates with a dot, matching the existing variant artifacts', () => {
-    // `<demo>.<variant>.mp4` already exists, so a language reads as another
-    // artifact of the same demo rather than as a second naming scheme.
+  it('separates with a dot, matching the existing subtitle sidecars', () => {
+    // `<demo>.<variant>.srt` and `.vtt` already exist, so a language reads as
+    // another artifact of the same demo rather than a second naming scheme.
+    // The variant *video* is `<demo>-<variant>.mp4`; upstream already spells
+    // the two conventions differently and this follows the sidecar one.
     expect(resolveOutputName('checkout', 'de')).toBe('checkout.de');
   });
 
@@ -94,5 +96,17 @@ describe('assertValidLang', () => {
     'd',
   ])('rejects %s', tag => {
     expect(() => assertValidLang(tag)).toThrow(/invalid --lang/);
+  });
+
+  // The guard lives in the resolvers, not only at the CLI, because
+  // `runPipeline` and `PipelineOptions` are exported from src/index.ts while
+  // `assertValidLang` is not. Testing the predicate in isolation would not
+  // notice a consumer that forgot to call it.
+  it.each([
+    ['resolveManifestPath', () => resolveManifestPath('demos', 'checkout', '../../../../tmp/pwn')],
+    ['resolveArgoSubdir', () => resolveArgoSubdir('checkout', '../../../../tmp/pwn')],
+    ['resolveOutputName', () => resolveOutputName('checkout', '../../../../tmp/pwn')],
+  ])('%s refuses a traversal tag rather than building the path', (_name, call) => {
+    expect(call).toThrow(/invalid --lang/);
   });
 });
