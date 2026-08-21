@@ -521,6 +521,11 @@ export async function runPipeline(
   })();
   const pipelineMeta = {
     demo: demoName,
+    // Which language and which manifest produced this take. Without them the
+    // only record of a language run is its filename, and `scenes[].voice`
+    // below reports the config default, which says nothing about the language.
+    lang,
+    manifestPath,
     createdAt: new Date().toISOString(),
     video: {
       width: config.video.width,
@@ -724,6 +729,10 @@ export async function runPipeline(
 
       const variantOutputPath = await exportVideo({
         demoName: variantSubdir,
+        // Language runs only, so the video shares a basename with its own
+        // cues. Base demos keep the documented `<demo>-<variant>.mp4`, whose
+        // mismatch with `.srt` predates this feature and has callers.
+        outputName: lang ? `${outputName}.${variant.name}` : undefined,
         argoDir: '.argo',
         outputDir: config.outputDir,
         preset: config.export.preset,

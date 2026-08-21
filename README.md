@@ -257,9 +257,16 @@ different scene durations, so the browser is held for different lengths and
 the recording itself differs. A missing locale manifest is an error rather
 than a fallback to the base one.
 
+With `export.variants` configured, a language run writes
+`<demo>.<lang>.<variant>.mp4` beside its `.srt` and `.vtt`. Base demos keep the
+documented `<demo>-<variant>.mp4`, which does not match its own `.srt`; that
+predates language variants and renaming it would break existing callers.
+
 Wired into `argo pipeline` only. `argo export`, `argo validate` and `argo
 preview` still resolve the base manifest, so a language run cannot yet be
-re-exported or validated on its own.
+re-exported or validated on its own. `validate` is the one that stings: it is
+the only check that a scene the script marks has an entry in the manifest, and
+a locale manifest is maintained by whoever translated it.
 
 ### Overlay Blocks
 

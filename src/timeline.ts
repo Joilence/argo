@@ -27,27 +27,34 @@ export interface SceneManifestEntry {
  * artifact of the run claimed it was localised.
  */
 export function resolveManifestPath(demosDir: string, demoName: string, lang?: string): string {
-  return lang
-    ? join(demosDir, 'locales', `${demoName}.${lang}.scenes.json`)
-    : join(demosDir, `${demoName}.scenes.json`);
+  if (lang === undefined) return join(demosDir, `${demoName}.scenes.json`);
+  assertValidLang(lang);
+  return join(demosDir, 'locales', `${demoName}.${lang}.scenes.json`);
 }
 
 /** The `.argo` subdirectory for a run, which is per language so that clips, timings and word transcripts of two locales cannot be crossed. */
 export function resolveArgoSubdir(demoName: string, lang?: string): string {
-  return lang ? `${demoName}-${lang}` : demoName;
+  if (lang === undefined) return demoName;
+  assertValidLang(lang);
+  return `${demoName}-${lang}`;
 }
 
 /**
  * The basename a run's artifacts are written under in `outputDir`.
  *
- * Dot-separated rather than the dash used for `.argo` directories, so that a
- * language lands beside the existing `<demo>.<variant>.mp4` artifacts instead
- * of inventing a second convention. Without it a language run overwrites the
- * base demo's video, subtitles and metadata, which is silent: the files are
- * the right shape and describe a different recording.
+ * Dot-separated, matching the existing `<demo>.<variant>.srt` and `.vtt`
+ * sidecars. Note this does not match the variant *video*, which README
+ * documents as `<demo>-<variant>.mp4`: upstream already spells the two
+ * conventions differently and this follows the sidecar one.
+ *
+ * Without a distinct name a language run overwrites the base demo's video,
+ * subtitles and metadata, which is silent: the files are the right shape and
+ * describe a different recording.
  */
 export function resolveOutputName(demoName: string, lang?: string): string {
-  return lang ? `${demoName}.${lang}` : demoName;
+  if (lang === undefined) return demoName;
+  assertValidLang(lang);
+  return `${demoName}.${lang}`;
 }
 
 /**
@@ -55,8 +62,15 @@ export function resolveOutputName(demoName: string, lang?: string): string {
  *
  * `lang` reaches `join(demosDir, 'locales', ...)` on the read side and a
  * `mkdirSync` under `.argo/` on the write side, so an unchecked `../../..`
- * both reads outside the demos directory and writes outside `.argo`. Region
- * subtags are legal, which is why this is not simply alphanumeric.
+ * both reads outside the demos directory and writes outside `.argo`:
+ * `lang = '../../../../tmp/pwn'` resolves to `../tmp/pwn` and `../tmp/pwn.mp4`.
+ * Region subtags are legal, which is why this is not simply alphanumeric.
+ *
+ * Called by the three resolvers above rather than only at the CLI, because
+ * `runPipeline` and `PipelineOptions` are exported from `src/index.ts` while
+ * this is not: a library caller could not apply the check even knowing it
+ * existed, and a future `--lang` on `export` or `validate` would have to
+ * remember to. Guarding where the value is consumed cannot be forgotten.
  */
 export function assertValidLang(lang: string): void {
   if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(lang)) {

@@ -35,7 +35,7 @@ import { loadConfig } from '../src/config.js';
 import { record } from '../src/record.js';
 import { generateClips } from '../src/tts/generate.js';
 import { exportVideo } from '../src/export.js';
-import { runPipeline } from '../src/pipeline.js';
+import { runPipeline, runBatchPipeline, discoverDemos } from '../src/pipeline.js';
 import { init } from '../src/init.js';
 import { createProgram } from '../src/cli.js';
 
@@ -44,6 +44,7 @@ const mockedRecord = vi.mocked(record);
 const mockedGenerateClips = vi.mocked(generateClips);
 const mockedExportVideo = vi.mocked(exportVideo);
 const mockedRunPipeline = vi.mocked(runPipeline);
+const mockedRunBatchPipeline = vi.mocked(runBatchPipeline);
 const mockedInit = vi.mocked(init);
 
 const defaultConfig = {
@@ -126,6 +127,43 @@ describe('CLI', () => {
 
       expect(mockedLoadConfig).toHaveBeenCalledWith(process.cwd(), undefined);
       expect(mockedRunPipeline).toHaveBeenCalledWith('onboarding', defaultConfig, { headed: undefined });
+    });
+
+    it('forwards --lang to runPipeline', async () => {
+      // Nothing else pins this: toHaveBeenCalledWith ignores undefined-valued
+      // keys, so the assertion above passes whether or not `lang` is wired up.
+      await run('pipeline', 'onboarding', '--lang', 'de');
+
+      expect(mockedRunPipeline).toHaveBeenCalledWith(
+        'onboarding',
+        defaultConfig,
+        expect.objectContaining({ lang: 'de' }),
+      );
+    });
+
+    it('forwards --lang through the batch path too', async () => {
+      // Separate assertion from the single-demo one: they are two call sites
+      // in cli.ts, and removing either leaves the other's test green.
+      // beforeEach resets all mocks, so the module-level return values on
+      // these two are gone by the time the test body runs.
+      vi.mocked(discoverDemos).mockReturnValue(['onboarding']);
+      mockedRunBatchPipeline.mockResolvedValue(['videos/onboarding.de.mp4']);
+
+      await run('pipeline', '--all', '--lang', 'de');
+
+      expect(mockedRunBatchPipeline).toHaveBeenCalledWith(
+        defaultConfig,
+        expect.objectContaining({ lang: 'de' }),
+      );
+    });
+
+    it('rejects a language tag that would escape the demos directory', async () => {
+      // `lang` is spliced into a path on the read side and a mkdir on the
+      // write side, so this has to fail before runPipeline is reached.
+      await expect(run('pipeline', 'onboarding', '--lang', '../../../../tmp/pwn')).rejects.toThrow(
+        /invalid --lang/,
+      );
+      expect(mockedRunPipeline).not.toHaveBeenCalled();
     });
   });
 
