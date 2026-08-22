@@ -79,7 +79,12 @@ jobs:
             console.log('tarball resolves through exports map');
           "
 
-      - run: npx playwright install --with-deps chromium
+      # From inside the fixture, not the checkout. The two resolve different
+      # Playwright versions (the fixture takes whatever ^1.59.1 gives today),
+      # and each version pins its own browser revision — installing from the
+      # repo root downloads a build the fixture's Playwright will not use.
+      - name: Install browser for the fixture's Playwright
+        run: cd "$RUNNER_TEMP/pack-smoke" && npx playwright install --with-deps chromium
 
       - name: Run pipeline from the installed package
         run: cd "$RUNNER_TEMP/pack-smoke" && npx argo pipeline hello-world --browser chromium
