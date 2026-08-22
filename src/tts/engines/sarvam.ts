@@ -1,4 +1,5 @@
 import type { TTSEngine, TTSEngineOptions, TTSEngineMetadata } from '../engine.js';
+import { importOptional, SARVAM_DEP } from '../../optional-deps.js';
 
 export interface SarvamEngineOptions {
   apiKey?: string;
@@ -36,15 +37,11 @@ export class SarvamEngine implements TTSEngine {
     // `SarvamAIClient` is the client class. The package has no default export
     // and its `SarvamAI` export is a namespace object, so destructuring either
     // yields undefined and fails at `new` with an unrelated-looking TypeError.
-    let SarvamAIClient: any;
-    try {
-      // @ts-ignore — sarvamai is an optional dependency
-      ({ SarvamAIClient } = await import('sarvamai'));
-    } catch {
-      throw new Error(
-        "Sarvam TTS engine requires the 'sarvamai' package. Install it with: npm i sarvamai"
-      );
-    }
+    // Loosely typed on purpose: the SDK's own typings don't describe this shape.
+    const { SarvamAIClient }: any = await importOptional(
+      () => import('sarvamai'),
+      SARVAM_DEP,
+    );
 
     // The package resolved but does not expose the client — a version skew or
     // a rename in a future major. Say so, rather than letting `new undefined()`

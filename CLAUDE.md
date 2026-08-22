@@ -16,6 +16,18 @@ Argo turns Playwright demo scripts into polished product demo videos with AI voi
 - Kokoro TTS defaults: model `onnx-community/Kokoro-82M-v1.0-ONNX`, dtype `q8`
 - Clear TTS cache if voiceover text changes: `rm -rf .argo/<demo>/clips`
 
+## Optional Engine Dependencies (`src/optional-deps.ts`)
+
+All six TTS/STT SDKs (`kokoro-js`, `@huggingface/transformers`, `openai`, `@elevenlabs/elevenlabs-js`, `@google/genai`, `sarvamai`) are **optional peer dependencies**, not `dependencies` or `optionalDependencies`. This is deliberate: npm installs `optionalDependencies` by default (the field only tolerates install *failure*), while `peerDependenciesMeta.optional` is the one field npm never auto-installs. Base install is ~27 MB; a Kokoro user reaches ~435 MB only if they ask for it.
+
+- Every adapter loads its SDK through `importOptional()`, which converts `ERR_MODULE_NOT_FOUND` into an install hint and lets every other failure propagate untouched. Never replace it with a bare `catch` that assumes "missing package" (that was the old behaviour and it misreported broken installs).
+- `src/tts/transcribe.ts` MUST keep its `@huggingface/transformers` import dynamic. A top-level import there is reachable from `src/cli.ts`, so it breaks *every* command (`validate`, `export`, `doctor`) when the package is absent, in all three install modes. This was the single blocker to the whole design.
+- `@huggingface/transformers` is declared `^3.5.1 || ^4.2.0` on purpose. `kokoro-js@1.2.1` wants `^3.5.1`; pinning Argo to `^4` forces a second nested copy plus a second ONNX runtime (~765 MB vs ~410 MB) because `overrides` only apply in a root `package.json` and stop working once Argo is a dependency. Word-level Whisper timestamps are verified working on 3.8.1.
+- The permissive peer *range* does not license a permissive install *hint*. `TRANSFORMERS_DEP`, `WHISPER_DEP` and `MUSICGEN_DEP` all print `@huggingface/transformers@3`, because `latest` is 4.x and a bare `npm i` next to an existing `kokoro-js` produces exactly the two-runtime tree above. Every command Argo prints must resolve to the major `kokoro-js` shares; `tests/optional-deps.test.ts` pins this. Drop the pin only when `kokoro-js` moves to v4.
+- Neither `isDepInstalled()` nor `detectInstallMode()` may propagate a resolver failure. A probe can fail without the package being absent: `ERR_INVALID_PACKAGE_CONFIG` from an interrupted install, `ERR_PACKAGE_PATH_NOT_EXPORTED` from an `exports` map with no matching condition (which this package shipped once, see Publishing). Both run inside `importOptional`'s `catch`, where a throw replaces the import error the user needs, and `argo doctor` calls `detectInstallMode()` before anything else, so a throw there costs the whole table on exactly the broken tree the command exists to diagnose. `isDepInstalled` answers "not known to be absent" and `detectInstallMode` falls back to `project`. Both recover only on errors carrying a `code`: a bug in Argo surfaces as a bare `TypeError` and must still throw.
+- `detectInstallMode()` distinguishes project / global / npx, because the correct install command differs. Global trees do not hoist, so Kokoro needs `npm i -g kokoro-js@1 @huggingface/transformers@3` in **one** command; two separate `npm i -g` runs produce two ONNX copies (~840 MB vs ~410 MB). Detection resolves `@argo-video/cli` from the cwd and compares identity with the running copy, which keeps pnpm, nested npm, and Yarn PnP working without path-string special cases.
+- Surfaces that report engine availability: `argo doctor` (full table), `argo init` (hint when nothing is installed), and the adapters' runtime errors. Keep them consistent when adding an engine.
+
 ## Publishing
 
 - Package: `@argo-video/cli` (npm org: `@argo-video`)

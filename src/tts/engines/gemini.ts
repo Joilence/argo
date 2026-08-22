@@ -1,4 +1,5 @@
 import type { TTSEngine, TTSEngineOptions, TTSEngineMetadata } from '../engine.js';
+import { importOptional, GEMINI_DEP } from '../../optional-deps.js';
 
 export interface GeminiEngineOptions {
   apiKey?: string;
@@ -33,15 +34,10 @@ export class GeminiEngine implements TTSEngine {
   async generate(text: string, options: TTSEngineOptions): Promise<Buffer> {
     if (!text?.trim()) throw new Error('TTS text must not be empty');
 
-    let GoogleGenAI: any;
-    try {
-      // @ts-ignore — @google/genai is an optional dependency
-      ({ GoogleGenAI } = await import('@google/genai'));
-    } catch {
-      throw new Error(
-        "Gemini TTS engine requires the '@google/genai' package. Install it with: npm i @google/genai"
-      );
-    }
+    const { GoogleGenAI } = await importOptional(
+      () => import('@google/genai'),
+      GEMINI_DEP,
+    );
 
     const ai = new GoogleGenAI({ apiKey: this.resolveApiKey() });
     const response = await ai.models.generateContent({
