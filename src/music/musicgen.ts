@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { importOptional, MUSICGEN_DEP } from '../optional-deps.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { importOptional, MUSICGEN_DEP } from '../optional-deps.js';
 import { createWavBuffer } from '../tts/engine.js';
 
 export interface MusicGenOptions {

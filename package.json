@@ -1,6 +1,6 @@
 {
   "name": "@argo-video/cli",
-  "version": "0.38.2",
+  "version": "0.39.0",
   "description": "Turn Playwright demo scripts into polished product demo videos with AI voiceover",
   "type": "module",
   "main": "./dist/index.js",
@@ -41,7 +41,9 @@
     "form-data": "^4.0.6",
     "vite": "^7.3.5",
     "esbuild": "^0.28.1",
-    "protobufjs": "^7.6.3"
+    "protobufjs": "^7.6.3",
+    "sharp": "^0.35.3",
+    "nanoid": "^3.3.18"
   },
   "publishConfig": {
     "access": "public"
@@ -88,5 +90,8 @@
     "sarvamai": {
       "optional": true
     }
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
