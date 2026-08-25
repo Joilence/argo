@@ -291,9 +291,8 @@ export async function dimAround(
       const padding = 0;
       const overlay = document.createElement('div');
       overlay.setAttribute(attr, 'dim-around');
-      // `evenodd` for the same reason as in spotlight(): both rings of the
-      // cutout are written in the same winding order, and the default
-      // `nonzero` would fill the hole rather than clear it.
+      // Both rings of the cutout are written in the same winding order, so the
+      // default `nonzero` fills the hole rather than clearing it.
       overlay.style.cssText = `
         position: fixed; inset: 0; z-index: 99990; pointer-events: none;
         background: rgba(0,0,0,${1 - dimOpacity});
