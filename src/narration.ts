@@ -647,6 +647,9 @@ export class NarrationTimeline {
     if (!words?.length) return null;
 
     const normalized = normalizeWord(target);
+    // Pure punctuation strips to nothing on both sides, so without this the
+    // first such token in the scene matches and the caller gets a wrong time.
+    if (!normalized) return null;
     for (const w of words) {
       if (normalizeWord(w.text) !== normalized) continue;
       const elapsedInSceneMs = (Date.now() - this.startTime) - markMs;
@@ -657,7 +660,14 @@ export class NarrationTimeline {
   }
 }
 
-const normalizeWord = (s: string): string => s.toLowerCase().replace(/[^\w']/g, '');
+/**
+ * `\w` is ASCII-only and strips a non-Latin token to '', so every such
+ * token compares equal. `\p{M}` is needed too: combining marks carry the
+ * sound in Devanagari, Thai and Arabic. NFC first, so decomposed equals
+ * precomposed.
+ */
+const normalizeWord = (s: string): string =>
+  s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}']/gu, '');
 
 export interface WordTiming {
   text: string;
