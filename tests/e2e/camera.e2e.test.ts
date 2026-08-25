@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import { spotlight } from '../../src/camera.js';
+import { describeWithCapability } from '../helpers/capability.js';
 
 async function canLaunchChromium(): Promise<boolean> {
   try {
@@ -12,7 +13,14 @@ async function canLaunchChromium(): Promise<boolean> {
   }
 }
 
-const describeCameraE2E = (await canLaunchChromium()) ? describe : describe.skip;
+// Skips locally when Chromium isn't downloaded; fails in CI, where it is
+// installed on purpose. A silent skip here would retire the very guard this
+// suite exists to be — the bug it covers survived precisely because nothing
+// could observe it.
+const describeCameraE2E = describeWithCapability(
+  await canLaunchChromium(),
+  'a Chromium binary',
+);
 
 /** White target on a mid-grey field, so the scrim's effect on each is obvious. */
 const FIXTURE = `<!doctype html><meta charset="utf-8">
