@@ -48,10 +48,7 @@ describe('parseRawAudioMime', () => {
   });
 
   it('refuses a rate it cannot read instead of guessing one', () => {
-    // Guessing does not fail: declaring 24000 for a 16000 stream returns a
-    // clip a third short at 1.5x pitch and exit code 0, and argo derives scene
-    // durations from clip length, so every wait in the recording shortens with
-    // nothing reported.
+    // Throwing is the point: a guessed rate is silently wrong, never an error.
     for (const mime of ['audio/L16;codec=pcm', 'audio/L16;rate=abc', 'audio/L16;rate=0', 'audio/L16;rate=']) {
       expect(() => parseRawAudioMime(mime)).toThrow(/sample rate/);
     }
@@ -112,7 +109,7 @@ describe('convertToWav input format', () => {
     const argv = args();
     expect(argv).toContain('atempo=1.5');
     // The demuxer applies to the input and the tempo filter to the output, so
-    // the order between them is load-bearing.
+    // ffmpeg reads them by position: swapping the two changes what they act on.
     expect(argv.indexOf('-f')).toBeLessThan(argv.indexOf('-i'));
     expect(argv.indexOf('-filter:a')).toBeGreaterThan(argv.indexOf('-i'));
   });

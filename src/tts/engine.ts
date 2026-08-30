@@ -288,30 +288,14 @@ function mimeParam(params: string[], name: string): string | undefined {
 /**
  * Read a raw-PCM media type into the arguments ffmpeg needs to open it.
  *
- * Gemini's TTS models answer with `audio/L16;codec=pcm;rate=24000`: sample data
- * and nothing else, no RIFF header and no magic bytes. Handed to
- * `ffmpeg -i pipe:0` it fails with "Invalid data found when processing input",
- * because there is nothing there to recognise.
+ * Raw PCM carries no header, so ffmpeg cannot open it without being told the
+ * format. Gemini's TTS models send `audio/L16;codec=pcm;rate=24000`.
  *
- * The layout is little-endian, and this is a deliberate deviation from the
- * spec rather than an oversight: RFC 2586 section 3 defines L16 as network
- * byte order, and Google sends little-endian anyway.
+ * Little-endian contradicts RFC 2586 section 3, which defines L16 as network
+ * byte order, but it is what Google sends. A conforming provider needs `s16be`.
  *
- * Worth separating how well each half of that is established, because the
- * cost of being wrong is silent. Little-endian on the *Live API* is
- * documented outright. On the `generateContent` path this engine uses it is
- * not documented anywhere official; it is inferred from Google's own samples,
- * which write the decoded bytes straight into Python's `wave`, and that
- * module cannot emit anything else. `openai.ts` hardcodes `readInt16LE` for
- * the same provider-driven reason.
- *
- * `tests/tts/raw-pcm-roundtrip.test.ts` is what turns the inference into
- * something checkable: it decodes a synthesized sine through real ffmpeg and
- * fails if the byte order is wrong. A second provider that actually conformed
- * to the RFC would need `s16be` and must not reuse this blindly.
- *
- * Returns null for anything self-describing (MP3, OGG, WAV), which should go
- * through ffmpeg's own probing instead.
+ * Returns null for self-describing formats, which ffmpeg can probe itself.
+ * Throws for an L16 type carrying no readable rate, which nothing can recover.
  */
 export function parseRawAudioMime(mimeType: string | undefined): RawAudioFormat | null {
   if (!mimeType) return null;
@@ -361,7 +345,6 @@ export function convertToWav(
   inputFormat?: RawAudioFormat | null,
 ): Buffer {
   const { execFileSync } = childProcess;
-  // Sniffing is the default; an explicit format is only for headerless input.
   const inputArgs = inputFormat
     ? ['-f', inputFormat.format, '-ar', String(inputFormat.sampleRate), '-ac', String(inputFormat.channels)]
     : [];
