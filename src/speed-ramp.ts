@@ -25,9 +25,13 @@ export function computeSegments(
 ): Segment[] {
   const minGapMs = config.minGapMs ?? 500;
   const gapSpeed = config.gapSpeed;
+  const maxGapMs = config.maxGapMs;
+  if (maxGapMs !== undefined && (!Number.isFinite(maxGapMs) || maxGapMs <= 0)) {
+    throw new Error('speedRamp.maxGapMs must be a positive finite number.');
+  }
   const hasSceneSpeeds = sceneSpeeds && Object.values(sceneSpeeds).some((s) => s !== 1.0);
 
-  if (gapSpeed <= 1.0 && !hasSceneSpeeds) return []; // No speed changes needed
+  if (maxGapMs === undefined && gapSpeed <= 1.0 && !hasSceneSpeeds) return [];
 
   const sorted = [...placements].sort((a, b) => a.startMs - b.startMs);
   const segments: Segment[] = [];
@@ -39,13 +43,15 @@ export function computeSegments(
 
   for (const p of sorted) {
     if (p.startMs > cursor) {
-      // Gap before this scene:
+      // The output-duration cap overrides the legacy gap-speed policy below.
       // 1. If gapSpeed is configured and gap is large enough, use gapSpeed
       // 2. Otherwise inherit previous scene's playbackSpeed (covers the full
       //    recording span from mark to next mark, not just the TTS window)
       // 3. Fall back to 1.0
       let useSpeed = 1.0;
-      if (p.startMs - cursor >= minGapMs && gapSpeed > 1.0) {
+      if (maxGapMs !== undefined) {
+        useSpeed = Math.max(1, (p.startMs - cursor) / maxGapMs);
+      } else if (p.startMs - cursor >= minGapMs && gapSpeed > 1.0) {
         useSpeed = gapSpeed;
       } else if (prevSceneSpeed !== 1.0) {
         useSpeed = prevSceneSpeed;
@@ -67,10 +73,12 @@ export function computeSegments(
     cursor = p.endMs;
   }
 
-  // Trailing gap — gapSpeed wins if configured, else inherit previous scene speed
+  // Apply the same cap or legacy speed policy to the trailing gap.
   if (totalDurationMs > cursor) {
     let trailingSpeed = 1.0;
-    if (totalDurationMs - cursor >= minGapMs && gapSpeed > 1.0) {
+    if (maxGapMs !== undefined) {
+      trailingSpeed = Math.max(1, (totalDurationMs - cursor) / maxGapMs);
+    } else if (totalDurationMs - cursor >= minGapMs && gapSpeed > 1.0) {
       trailingSpeed = gapSpeed;
     } else if (prevSceneSpeed !== 1.0) {
       trailingSpeed = prevSceneSpeed;
@@ -109,8 +117,7 @@ export function applySpeedRampToTimeline(
   config?: SpeedRampConfig,
   sceneSpeeds?: SceneSpeedMap,
 ): { placements: Placement[]; totalDurationMs: number; segments: Segment[] } {
-  const hasSceneSpeeds = sceneSpeeds && Object.values(sceneSpeeds).some((s) => s !== 1.0);
-  if (!hasSceneSpeeds && (!config || config.gapSpeed <= 1.0) || placements.length === 0) {
+  if (placements.length === 0) {
     return { placements, totalDurationMs, segments: [] };
   }
 
