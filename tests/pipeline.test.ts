@@ -281,14 +281,14 @@ describe('runPipeline', () => {
     expect(metadata).toEqual({ intro: 1200, done: 900 });
   });
 
-  it('pads export when aligned audio outlasts the recording', async () => {
+  it('covers narration overflow without adding more than a frame of silent video', async () => {
     mockedExecFileSync.mockReturnValue('5.000\n');
 
     await runPipeline(DEMO_NAME, defaultConfig);
 
-    expect(mockedExportVideo).toHaveBeenCalledWith(expect.objectContaining({
-      tailPadMs: 1100,
-    }));
+    const options = mockedExportVideo.mock.calls[0][0];
+    expect(options.tailPadMs).toBeGreaterThanOrEqual(1000);
+    expect(options.tailPadMs).toBeLessThan(1000 + 1000 / defaultConfig.video.fps);
   });
 
   it('writes narration-aligned.wav to .argo/<demo>/', async () => {

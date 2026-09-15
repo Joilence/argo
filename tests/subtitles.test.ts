@@ -14,6 +14,12 @@ const sceneTexts: Record<string, string> = {
   closing: 'Thanks for watching.',
 };
 
+it('rounds fractional timestamps before carrying into minutes and hours in both formats', () => {
+  const fractional = [{ scene: 'intro', startMs: 59_999.6, endMs: 3_599_999.6 }];
+  expect(generateSrt(fractional, sceneTexts)).toContain('00:01:00,000 --> 01:00:00,000');
+  expect(generateVtt(fractional, sceneTexts)).toContain('00:01:00.000 --> 01:00:00.000');
+});
+
 describe('generateSrt', () => {
   it('produces valid SRT with correct numbering and timestamps', () => {
     const srt = generateSrt(placements, sceneTexts);

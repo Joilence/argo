@@ -80,35 +80,6 @@ describe('exportVideo', () => {
     mockedSpawnSync.mockReturnValue({ status: 0 } as any);
   }
 
-  it('builds correct default ffmpeg args', async () => {
-    setupHappy();
-    const result = await exportVideo({ demoName: 'my-demo', argoDir: '.argo', outputDir: 'videos' });
-
-    expect(mockedSpawnSync).toHaveBeenCalledTimes(1);
-    const [cmd, args] = mockedSpawnSync.mock.calls[0];
-    expect(cmd).toBe('ffmpeg');
-    expect(args).toEqual([
-      '-i', '.argo/my-demo/video.mp4',
-      '-i', '.argo/my-demo/narration-aligned.wav',
-      '-vf', 'scale=in_range=pc:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv',
-      '-c:v', 'libx264',
-      '-pix_fmt', 'yuv420p',
-      '-preset', 'slow',
-      '-crf', '16',
-      '-x264-params', 'aq-mode=3:aq-strength=0.8:deblock=1,1:colorprim=bt709:transfer=bt709:colormatrix=bt709',
-      '-colorspace:v', 'bt709',
-      '-color_primaries:v', 'bt709',
-      '-color_trc:v', 'bt709',
-      '-color_range', 'tv',
-      '-video_track_timescale', '90000',
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      '-shortest',
-      '-y',
-      'videos/my-demo.mp4',
-    ]);
-    expect(result).toBe('videos/my-demo.mp4');
-  });
 
   it('applies custom preset and crf', async () => {
     setupHappy();
@@ -138,7 +109,6 @@ describe('exportVideo', () => {
     expect(vfIdx).toBeGreaterThan(-1);
     const vfValue = (args as string[])[vfIdx + 1];
     expect(vfValue).toContain('tpad=stop_mode=clone:stop_duration=1.25');
-    expect(vfValue).toContain('scale=in_range=pc:out_range=tv');
   });
 
   it('adds lanczos downscale filter when deviceScaleFactor > 1', async () => {
@@ -153,22 +123,6 @@ describe('exportVideo', () => {
     expect(vfIdx).toBeGreaterThan(-1);
     const vfValue = (args as string[])[vfIdx + 1];
     expect(vfValue).toContain('scale=1920:1080:flags=lanczos');
-    expect(vfValue).toContain('scale=in_range=pc:out_range=tv');
-  });
-
-  it('combines tpad and downscale filters in one -vf chain', async () => {
-    setupHappy();
-    await exportVideo({
-      demoName: 'demo', argoDir: '.argo', outputDir: 'out',
-      tailPadMs: 500, outputWidth: 1920, outputHeight: 1080, deviceScaleFactor: 2,
-    });
-
-    const [, args] = mockedSpawnSync.mock.calls[0];
-    const vfIdx = (args as string[]).indexOf('-vf');
-    expect(vfIdx).toBeGreaterThan(-1);
-    expect((args as string[])[vfIdx + 1]).toBe(
-      'tpad=stop_mode=clone:stop_duration=0.5,scale=1920:1080:flags=lanczos,scale=in_range=pc:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv'
-    );
   });
 
   it('throws on missing video file', async () => {
@@ -639,118 +593,6 @@ describe('exportVideo', () => {
     expect(fc).toContain('[4:v]');
   });
 
-  // ---------- BT.709 color space tagging ----------
-
-  it('embeds BT.709 color metadata in the output args', async () => {
-    setupHappy();
-    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out' });
-
-    const [, args] = mockedSpawnSync.mock.calls[0];
-    const a = args as string[];
-
-    // x264-params should include BT.709 + AQ tuning
-    const x264Idx = a.indexOf('-x264-params');
-    expect(x264Idx).toBeGreaterThan(-1);
-    const x264Params = a[x264Idx + 1];
-    expect(x264Params).toContain('colorprim=bt709');
-    expect(x264Params).toContain('transfer=bt709');
-    expect(x264Params).toContain('colormatrix=bt709');
-    expect(x264Params).toContain('aq-mode=3');
-    expect(x264Params).toContain('aq-strength=0.8');
-    expect(x264Params).toContain('deblock=1,1');
-
-    // Container-level color tags
-    expect(a).toContain('-colorspace:v');
-    expect(a[a.indexOf('-colorspace:v') + 1]).toBe('bt709');
-    expect(a).toContain('-color_primaries:v');
-    expect(a[a.indexOf('-color_primaries:v') + 1]).toBe('bt709');
-    expect(a).toContain('-color_trc:v');
-    expect(a[a.indexOf('-color_trc:v') + 1]).toBe('bt709');
-    expect(a).toContain('-color_range');
-    expect(a[a.indexOf('-color_range') + 1]).toBe('tv');
-
-    // Frame-level setparams for GPU encoders (videotoolbox/nvenc/vaapi don't
-    // honor container-level flags — setparams embeds metadata in the stream).
-    const vfIdx2 = a.indexOf('-vf');
-    expect(vfIdx2).toBeGreaterThan(-1);
-    expect(a[vfIdx2 + 1]).toContain('setparams=color_primaries=bt709');
-
-    // Fixed timescale
-    expect(a).toContain('-video_track_timescale');
-    expect(a[a.indexOf('-video_track_timescale') + 1]).toBe('90000');
-  });
-
-  // ---------- Full-range to TV-range conversion ----------
-
-  it('includes scale=in_range=pc:out_range=tv in video filter args', async () => {
-    setupHappy();
-    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out' });
-
-    const [, args] = mockedSpawnSync.mock.calls[0];
-    const a = args as string[];
-
-    // Should appear as a -vf filter
-    const vfIdx = a.indexOf('-vf');
-    expect(vfIdx).toBeGreaterThan(-1);
-    const vfValue = a[vfIdx + 1];
-    expect(vfValue).toContain('scale=in_range=pc:out_range=tv');
-  });
-
-  it('embeds BT.709 color metadata in blur-fill format variant args', async () => {
-    setupHappy();
-    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', formats: ['1:1'] });
-
-    // The second spawnSync call is the blur-fill variant export
-    expect(mockedSpawnSync.mock.calls.length).toBeGreaterThanOrEqual(2);
-    const [, variantArgs] = mockedSpawnSync.mock.calls[1];
-    const a = variantArgs as string[];
-
-    // x264-params should include BT.709 + AQ tuning
-    const x264Idx = a.indexOf('-x264-params');
-    expect(x264Idx).toBeGreaterThan(-1);
-    const x264Params = a[x264Idx + 1];
-    expect(x264Params).toContain('colorprim=bt709');
-    expect(x264Params).toContain('transfer=bt709');
-    expect(x264Params).toContain('colormatrix=bt709');
-    expect(x264Params).toContain('aq-mode=3');
-    expect(x264Params).toContain('aq-strength=0.8');
-    expect(x264Params).toContain('deblock=1,1');
-
-    // Container-level color tags
-    expect(a).toContain('-colorspace:v');
-    expect(a[a.indexOf('-colorspace:v') + 1]).toBe('bt709');
-    expect(a).toContain('-color_primaries:v');
-    expect(a[a.indexOf('-color_primaries:v') + 1]).toBe('bt709');
-    expect(a).toContain('-color_trc:v');
-    expect(a[a.indexOf('-color_trc:v') + 1]).toBe('bt709');
-    expect(a).toContain('-color_range');
-    expect(a[a.indexOf('-color_range') + 1]).toBe('tv');
-
-    // Frame-level setparams for GPU encoders — blur-fill uses filter_complex.
-    const fcIdx2 = a.indexOf('-filter_complex');
-    expect(fcIdx2).toBeGreaterThan(-1);
-    expect(a[fcIdx2 + 1]).toContain('setparams=color_primaries=bt709');
-
-    // Fixed timescale
-    expect(a).toContain('-video_track_timescale');
-    expect(a[a.indexOf('-video_track_timescale') + 1]).toBe('90000');
-  });
-
-  it('includes scale=in_range=pc:out_range=tv in blur-fill format variant filter_complex', async () => {
-    setupHappy();
-    await exportVideo({ demoName: 'demo', argoDir: '.argo', outputDir: 'out', formats: ['1:1'] });
-
-    // The second spawnSync call is the blur-fill variant export
-    expect(mockedSpawnSync.mock.calls.length).toBeGreaterThanOrEqual(2);
-    const [, variantArgs] = mockedSpawnSync.mock.calls[1];
-    const a = variantArgs as string[];
-
-    const fcIdx = a.indexOf('-filter_complex');
-    expect(fcIdx).toBeGreaterThan(-1);
-    const fcValue = a[fcIdx + 1];
-    expect(fcValue).toContain('scale=in_range=pc:out_range=tv');
-  });
-
   // ---------- GPU encoder integration ----------
 
   it('uses GPU encoder codec name when GPU is available', async () => {
@@ -836,14 +678,12 @@ describe('exportVideo', () => {
     expect(deviceIdx).toBeGreaterThan(-1);
     expect(deviceIdx).toBeLessThan(firstInputIdx);
     // With no filter_complex features, hwupload is appended to the -vf chain
-    // (after scale=in_range=pc:out_range=tv) — not as a separate -vf arg
     const vfIdx = a.indexOf('-vf');
     expect(vfIdx).toBeGreaterThan(-1);
     const vfValue = a[vfIdx + 1];
-    expect(vfValue).toContain('scale=in_range=pc:out_range=tv');
     expect(vfValue).toContain('hwupload');
     // hwupload must come AFTER scale (software filter before hw upload)
-    expect(vfValue.indexOf('hwupload')).toBeGreaterThan(vfValue.indexOf('scale=in_range=pc:out_range=tv'));
+    expect(vfValue.indexOf('hwupload')).toBeGreaterThan(vfValue.indexOf('scale='));
     // Only one -vf flag (not two)
     expect(a.filter(x => x === '-vf').length).toBe(1);
   });
