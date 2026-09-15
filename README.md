@@ -639,7 +639,7 @@ export: {
 
 ### Export Quality
 
-Argo's H.264 output is tagged BT.709 color space, uses x264 adaptive quantization (`aq-mode=3`) to reduce banding on gradients, and converts Chrome's full-range RGB to H.264 TV range. Tags ensure colors match across Safari, TVs, and mobile players.
+Argo's H.264 output uses limited-range BT.709 and x264 adaptive quantization (`aq-mode=3`) to reduce gradient banding. Export converts the decoded input's range and color matrix before applying BT.709 tags, preserving colors from both limited-range WebM and full-range JPEG captures. Aspect-ratio copies retain the master's range instead of compressing it again.
 
 **GPU encoding.** Argo auto-detects GPU encoders and uses them when available:
 

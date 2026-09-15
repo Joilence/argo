@@ -322,9 +322,8 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   if (deviceScaleFactor > 1 && outputWidth && outputHeight) {
     vFilters.push(`scale=${outputWidth}:${outputHeight}:flags=lanczos`);
   }
-  // Chrome renders full-range RGB (0-255); H.264 expects TV range (16-235).
-  // Convert so blacks don't clip and contrast matches on compliant players.
-  vFilters.push('scale=in_range=pc:out_range=tv');
+  // Convert decoded frame range and matrix to match the BT.709 output tags.
+  vFilters.push('scale=in_range=auto:out_range=tv:out_color_matrix=bt709');
   // setparams is added here for the simple -vf path (no compositing). When
   // overlay/composite steps run later (frame, watermark, overlayPNGs), they strip
   // color params from the top layer, so we re-inject setparams after all compositing
@@ -687,7 +686,7 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       // Simple -vf path: check if vFilters were already emitted via -vf
       const vfArgIdx = args.lastIndexOf('-vf');
       if (vfArgIdx >= 0) {
-        // Append to existing -vf chain (scale=in_range=pc... already there)
+        // Append to the existing software filter chain.
         args[vfArgIdx + 1] += ',format=nv12,hwupload';
       } else {
         args.push('-vf', 'format=nv12,hwupload');
@@ -852,7 +851,7 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       `split[bg][fg]`,
       `[bg]scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH},boxblur=20:5[blurred]`,
       `[fg]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease[scaled]`,
-      `[blurred][scaled]overlay=(W-w)/2:(H-h)/2,scale=in_range=pc:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv`,
+      `[blurred][scaled]overlay=(W-w)/2:(H-h)/2,scale=in_range=auto:out_range=tv:out_color_matrix=bt709,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv`,
     ].join(';');
 
     console.log(`  Exporting ${format} (blur-fill) → ${formatPath}`);
