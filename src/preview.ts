@@ -12,7 +12,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync, existsSync, readdirSync, writeFileSync, statSync, createReadStream, unlinkSync, mkdirSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
-import { renderTemplate } from './overlays/templates.js';
+import { renderTemplate, isZoneTemplateCue } from './overlays/templates.js';
 import { alignClips, schedulePlacements, type ClipInfo, type Placement, type SceneTiming } from './tts/align.js';
 import { ClipCache, type ManifestEntry } from './tts/cache.js';
 import { createWavBuffer, parseWavHeader } from './tts/engine.js';
@@ -32,6 +32,8 @@ import { generateFramePng } from './frame.js';
 import { resolveFreezes, adjustPlacementsForFreezes, totalFreezeDurationMs, type FreezeSpec } from './freeze.js';
 import { buildOverlayPngsForImport, isImportedVideo, type RenderedOverlayPng } from './overlays/render-to-png.js';
 import { renderShaderTransitions, type ShaderTransitionRenderResult } from './transitions/shader-render.js';
+import { resolveHfBlockCues, renderHfBlocks } from './hf/block-render.js';
+import type { RenderedHfBlock } from './hf/block-filter.js';
 import { detectVideoTheme, getVideoDurationMs, probeEdgeColors } from './media.js';
 import { computeWaveform } from './preview-waveform.js';
 import type { BackgroundTheme } from './overlays/zones.js';
@@ -57,6 +59,7 @@ export interface PreviewExportConfig {
   frame?: import('./config.js').FrameConfig;
   motionBlur?: boolean | { intensity: number };
   encoder?: 'cpu' | 'gpu';
+  blocksDir?: string;
 }
 
 export interface PreviewOptions {
@@ -268,6 +271,7 @@ function buildRenderedOverlays(
   const renderedOverlays: PreviewData['renderedOverlays'] = {};
   for (const entry of overlays) {
     const { scene, ...cue } = entry;
+    if (!isZoneTemplateCue(cue)) continue;
     const zone: Zone = cue.placement ?? 'bottom-center';
     const theme = themeMap?.[scene] ?? 'dark';
     const { contentHtml, styles } = renderTemplate(cue, theme);
@@ -1096,12 +1100,25 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
               height: ec?.outputHeight ?? 720,
               fps: ec?.fps ?? 30,
               cacheDir: join(demoDir, 'shaders'),
+              accent: shaderTransition.accent,
             });
             // Remap boundarySec to post-trim for the filter_complex splice
             previewShaderTransitions = rendered.map((r, i) => ({
               ...r,
               boundarySec: freezeAdjustedPlacements[i + 1].startMs / 1000,
             }));
+          }
+
+          // hf-block cutaways — pre-render installed hyperframes blocks (cache-hit cheap)
+          let previewHfBlocks: RenderedHfBlock[] | undefined;
+          const previewHfBlockCues = resolveHfBlockCues(scenes, freezeAdjustedPlacements);
+          if (previewHfBlockCues.length > 0) {
+            previewHfBlocks = await renderHfBlocks({
+              cues: previewHfBlockCues,
+              blocksDir: ec?.blocksDir ?? 'blocks',
+              cacheDir: join(demoDir, 'hf-blocks'),
+              fps: ec?.fps ?? 30,
+            });
           }
 
           // Export — use full config so output matches argo pipeline
@@ -1135,6 +1152,7 @@ export async function startPreviewServer(options: PreviewOptions): Promise<{ url
             freezeSpecs: previewResolvedFreezes.length > 0 ? previewResolvedFreezes : undefined,
             overlayPngs,
             shaderTransitions: previewShaderTransitions,
+            hfBlocks: previewHfBlocks,
             encoder: ec?.encoder,
             encoderDefault: 'gpu',
           });

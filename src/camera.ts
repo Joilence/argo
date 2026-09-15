@@ -17,20 +17,15 @@ export interface SpotlightOptions extends CameraOptions {
   opacity?: number;
   padding?: number;
   /**
-   * Corner radius of the cutout, in px. Default 10. Pass 0 for square corners.
-   *
-   * The hole is a rectangle around the target's bounding box, so on a pill
-   * button or a rounded card a square cutout reads as a crop rather than as a
-   * highlight.
+   * Corner radius of the cutout, in px. Default 10. Pass 0 for square corners,
+   * which on a pill button read as a crop rather than as a highlight.
    */
   radius?: number;
   /**
-   * How far the cutout's edge fades into the scrim, in px. Default 12, and 0
-   * gives the hard edge this effect used to have.
-   *
-   * This is the blur radius applied to the mask, so the scrim ramps in over
-   * roughly this distance instead of stepping from clear to full opacity in
-   * one pixel.
+   * Blur radius applied to the cutout's edge, in px. Default 12; 0 gives a hard
+   * edge. The visible ramp runs a little over twice this value. Past about a
+   * third of the cutout's shorter side it outgrows the filter region below and
+   * the ramp is cut off partway, showing as a faint square edge.
    */
   feather?: number;
 }
@@ -108,11 +103,8 @@ async function runCameraEffect(
 }
 
 /**
- * Cutout defaults, in one place.
- *
- * The signature resolves them and the page function reuses them as its
- * non-finite fallback, so the two cannot drift into disagreeing about what a
- * default is.
+ * Resolved in the signature and reused as the page function's fallback, so the
+ * two cannot drift into disagreeing about what a default is.
  */
 const SPOTLIGHT_DEFAULTS = { opacity: 0.7, padding: 12, radius: 10, feather: 12 } as const;
 
@@ -140,19 +132,16 @@ export async function spotlight(
     })();
     if (!rect) return;
 
-    // An SVG mask rather than a clip-path polygon. A polygon cuts a hole with
-    // hard edges and square corners and can express nothing else: there is no
-    // way to round its corners without emitting arcs by hand, and no way to
-    // soften its edge at all. The mask here is a white full-viewport rect (keep
-    // the scrim) with a black rounded rect punched through it (drop the scrim),
-    // and blurring that black rect is what feathers the hole. Corner radius and
-    // edge softness then become two numbers instead of a rewrite.
+    // A white full-viewport rect keeps the scrim, a black rounded rect punched
+    // through it drops the scrim, and blurring that black rect is what feathers
+    // the hole. A clip-path polygon can express none of that.
 
-    // The options are interpolated into markup, and TypeScript does not reach a
-    // caller writing plain JS, so coerce them. A non-numeric value would either
-    // inject into the mask or emit a NaN, and a NaN renders as a blank scrim
-    // with no hole: the one failure this effect must not have again. The rect
-    // needs none of this, coming from getBoundingClientRect or Playwright.
+    // Interpolated into markup, and TypeScript does not reach a JS caller, so
+    // coerce and clamp: a NaN, a negative radius or a negative size renders as
+    // a blank scrim with no hole. Padding itself may be negative — it shrinks
+    // the hole inside the target, as the clip-path version always allowed — so
+    // the clamp goes on the resulting width and height instead. The rect needs
+    // none of it, coming from getBoundingClientRect or Playwright.
     const num = (v: unknown, fallback: number) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
     const pad = num(padding, defaults.padding);
     const rad = Math.max(0, num(radius, defaults.radius));
@@ -162,8 +151,8 @@ export async function spotlight(
     const id = 'argo-spot-' + Math.random().toString(36).slice(2, 10);
     const x = rect.left - pad;
     const y = rect.top - pad;
-    const w = rect.width + pad * 2;
-    const h = rect.height + pad * 2;
+    const w = Math.max(0, rect.width + pad * 2);
+    const h = Math.max(0, rect.height + pad * 2);
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute(attr, 'spotlight');
@@ -172,28 +161,30 @@ export async function spotlight(
       z-index: 99990; pointer-events: none;
       opacity: 0; transition: opacity ${fadeIn}ms cubic-bezier(0.4, 0, 0.2, 1);
     `;
-    // No viewBox: user units then map 1:1 onto CSS pixels, which is what
+    // No viewBox, so user units map 1:1 onto the CSS pixels that
     // getBoundingClientRect and Playwright's boundingBox both report.
     //
-    // `color-interpolation-filters="sRGB"` because the SVG default is
-    // linearRGB, which makes a blurred mask ramp perceptually wrong: the scrim
-    // would darken far too fast right at the edge of the hole.
+    // Two quiet failures: SVG defaults to linearRGB, which ramps the scrim far
+    // too fast right at the hole's edge, and the default -10%/120% filter
+    // region clips the blur partway through its ramp on a small target.
     //
-    // The filter region is widened to 200% so the blur is not clipped by the
-    // default -10%/120% object bounding box, which for a small target would cut
-    // the feather off partway through its ramp.
+    // Fills go in inline `style`, not presentation attributes: any page rule
+    // that matches beats an attribute, and icon libraries ship resets like
+    // `svg rect { fill: currentColor }`. That repaints both mask rects alike and
+    // the spotlight silently dims nothing. The old clip-path div was immune for
+    // the same reason, being styled inline.
     svg.innerHTML = `
       <defs>
         <filter id="${id}-feather" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
           <feGaussianBlur stdDeviation="${soft / 2}" />
         </filter>
         <mask id="${id}" maskUnits="userSpaceOnUse">
-          <rect x="0" y="0" width="100%" height="100%" fill="white" />
+          <rect x="0" y="0" width="100%" height="100%" style="fill:white;stroke:none" />
           <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rad}" ry="${rad}"
-                fill="black" ${soft > 0 ? `filter="url(#${id}-feather)"` : ''} />
+                style="fill:black;stroke:none${soft > 0 ? `;filter:url(#${id}-feather)` : ''}" />
         </mask>
       </defs>
-      <rect x="0" y="0" width="100%" height="100%" fill="black" fill-opacity="${dim}" mask="url(#${id})" />
+      <rect x="0" y="0" width="100%" height="100%" style="fill:black;fill-opacity:${dim};stroke:none;mask:url(#${id})" />
     `;
     document.body.appendChild(svg);
     requestAnimationFrame(() => { svg.style.opacity = '1'; });
@@ -291,8 +282,8 @@ export async function dimAround(
       const padding = 0;
       const overlay = document.createElement('div');
       overlay.setAttribute(attr, 'dim-around');
-      // Both rings of the cutout are written in the same winding order, so the
-      // default `nonzero` fills the hole rather than clearing it.
+      // `evenodd`: both rings share a winding order, so `nonzero` would fill
+      // the interior instead of clearing it and paint a scrim with no hole.
       overlay.style.cssText = `
         position: fixed; inset: 0; z-index: 99990; pointer-events: none;
         background: rgba(0,0,0,${1 - dimOpacity});

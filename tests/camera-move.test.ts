@@ -9,6 +9,7 @@ import {
   type CameraMove,
 } from '../src/camera-move.js';
 import { computeSegments, remapTimeMs } from '../src/speed-ramp.js';
+import { adjustPlacementsForFreezes } from '../src/freeze.js';
 
 describe('buildCameraMoveFilter', () => {
   const baseMove: CameraMove = {
@@ -358,6 +359,56 @@ describe('remapCameraMoves', () => {
     expect(remapCameraMoves(moves, (timeMs) => timeMs)).toEqual(moves);
   });
 
+  it('keeps a closing move at its authored speed when its tail overhangs the end', () => {
+    // Second scene runs to the very end, so there is no trailing segment for
+    // the zoom-out to land in and the move's span runs past 7000.
+    const closing = computeSegments(
+      [{ scene: 'intro', startMs: 1000, endMs: 2000 }, { scene: 'outro', startMs: 4000, endMs: 7000 }],
+      7000,
+      { gapSpeed: 2.0, minGapMs: 500 },
+    );
+    const moves: CameraMove[] = [
+      { startMs: 6500, durationMs: 400, holdMs: 2200, x: 10, y: 20, w: 30, h: 40 },
+    ];
+
+    const [move] = remapCameraMoves(moves, (timeMs) => remapTimeMs(timeMs, closing));
+
+    // The ramp leaves this scene alone, so only the start shifts. Measuring the
+    // span against a saturated endpoint charges the overhang against the 500ms
+    // of timeline left, rendering the 400ms ease in two frames.
+    expect(move.durationMs).toBe(400);
+    expect(move.holdMs).toBe(2200);
+  });
+
+  // A freeze inserts time at one instant, so only the phase it lands in may
+  // grow. Scaling the whole move by one ratio smears it across the zoom-in and
+  // zoom-out too, in proportion to the freeze's length.
+  it('grows only the hold when a freeze lands inside it', () => {
+    const moves: CameraMove[] = [
+      { startMs: 1000, durationMs: 300, holdMs: 1400, x: 10, y: 20, w: 30, h: 40 },
+    ];
+    const freezeRemap = exportTimelineRemap((timeMs) => timeMs, [{ absoluteMs: 1500, durationMs: 5000 }]);
+
+    const [move] = remapCameraMoves(moves, freezeRemap);
+
+    // Zoom-in still ends at 1300, before the freeze. Zoom-out still starts
+    // 1400ms of content later, plus the 5000ms the freeze inserted: 7700.
+    expect(move.startMs).toBe(1000);
+    expect(move.durationMs).toBe(300);
+    expect(move.holdMs).toBe(6400);
+  });
+
+  it('leaves a move alone when a freeze starts exactly where it ends', () => {
+    const moves: CameraMove[] = [
+      { startMs: 1000, durationMs: 300, holdMs: 1400, x: 10, y: 20, w: 30, h: 40 },
+    ];
+    // The move covers [1000, 3000). Content at 3000 is pushed by the freeze,
+    // as adjustPlacementsForFreezes does, but that instant is not the move's.
+    const freezeRemap = exportTimelineRemap((timeMs) => timeMs, [{ absoluteMs: 3000, durationMs: 5000 }]);
+
+    expect(remapCameraMoves(moves, freezeRemap)).toEqual(moves);
+  });
+
   it('never rounds a fade down to zero', () => {
     const moves: CameraMove[] = [
       { startMs: 0, durationMs: 10, holdMs: 0, x: 10, y: 20, w: 30, h: 40 },
@@ -387,6 +438,18 @@ describe('exportTimelineRemap', () => {
     // Recorded 4000 lands at ramped 2000, past the freeze, so it takes the
     // full inserted hold.
     expect(remap(4000)).toBe(3000);
+  });
+
+  it('pushes a time landing exactly on a freeze, as adjustPlacementsForFreezes does', () => {
+    const freezes = [{ absoluteMs: 1000, durationMs: 500 }];
+    const remap = exportTimelineRemap((timeMs) => timeMs, freezes);
+
+    // `<=`, matching adjustPlacementsForFreezes. The two have to agree or a
+    // move and the scene it belongs to drift apart by the whole hold.
+    expect(remap(1000)).toBe(1500);
+    expect(remap(999)).toBe(999);
+    expect(adjustPlacementsForFreezes([{ scene: 'a', startMs: 1000, endMs: 2000 }], freezes)[0].startMs)
+      .toBe(1500);
   });
 
   it('is an identity when there is neither a ramp nor a freeze', () => {

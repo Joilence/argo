@@ -56,6 +56,13 @@ export {
 // Effects
 export { showConfetti, type ConfettiOptions } from './effects.js';
 
+// Hyperframes component injection
+export {
+  applyComponent,
+  removeComponent,
+  type ApplyComponentOptions,
+} from './hf/apply-component.js';
+
 // Camera
 export {
   spotlight,
@@ -130,7 +137,7 @@ export {
 } from './freeze.js';
 
 // Camera Moves
-export { buildCameraMoveFilter, buildMotionBlurFilter, detectChainedPairs, shiftCameraMoves, scaleCameraMoves, type CameraMove } from './camera-move.js';
+export { buildCameraMoveFilter, buildMotionBlurFilter, detectChainedPairs, shiftCameraMoves, scaleCameraMoves, remapCameraMoves, exportTimelineRemap, type CameraMove } from './camera-move.js';
 
 // Frame
 export { buildFrameFilter, generateFramePng, type FrameFilterResult } from './frame.js';
