@@ -660,11 +660,13 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
   const hasAnyAudio = hasAudio || hasMusic || hasExtraAudio;
 
   // Audio loudnorm — must be added before filter_complex is finalized
+  // Keep the buffered normalization tail sample-contiguous without shifting its start.
+  const loudnormFilter = 'loudnorm=I=-16:TP=-1.5:LRA=11,asetpts=N/SR/TB+STARTPTS';
   let useLoudnormSimple = false;
   if (hasAnyAudio && audioSource && options.loudnorm) {
     if (filterParts.length > 0) {
       // Append loudnorm inside the filter_complex audio chain
-      filterParts.push(`[${audioSource}]loudnorm=I=-16:TP=-1.5:LRA=11[anorm]`);
+      filterParts.push(`[${audioSource}]${loudnormFilter}[anorm]`);
       audioSource = 'anorm';
     } else {
       useLoudnormSimple = true;
@@ -742,11 +744,11 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
     '-color_range', 'tv',
   );
 
-  // Fixed 90kHz timescale prevents A/V timing drift across platforms.
-  args.push('-video_track_timescale', '90000');
+  // Keep edit-list and chapter timing as precise as video timestamps.
+  args.push('-video_track_timescale', '90000', '-movie_timescale', '90000');
   if (hasAnyAudio) {
     if (useLoudnormSimple) {
-      args.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
+      args.push('-af', loudnormFilter);
     }
     args.push('-c:a', 'aac', '-b:a', '192k');
   }
@@ -906,6 +908,7 @@ export async function exportVideo(options: ExportOptions): Promise<string> {
       '-color_trc:v', 'bt709',
       '-color_range', 'tv',
       '-video_track_timescale', '90000',
+      '-movie_timescale', '90000',
       '-c:a', 'copy',
       '-y', formatPath,
     );

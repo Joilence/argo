@@ -22,6 +22,7 @@ function buildEntries(
 }
 
 function formatSrtTime(ms: number): string {
+  ms = Math.round(ms);
   const h = Math.floor(ms / 3_600_000);
   const m = Math.floor((ms % 3_600_000) / 60_000);
   const s = Math.floor((ms % 60_000) / 1_000);

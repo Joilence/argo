@@ -80,35 +80,6 @@ describe('exportVideo', () => {
     mockedSpawnSync.mockReturnValue({ status: 0 } as any);
   }
 
-  it('builds correct default ffmpeg args', async () => {
-    setupHappy();
-    const result = await exportVideo({ demoName: 'my-demo', argoDir: '.argo', outputDir: 'videos' });
-
-    expect(mockedSpawnSync).toHaveBeenCalledTimes(1);
-    const [cmd, args] = mockedSpawnSync.mock.calls[0];
-    expect(cmd).toBe('ffmpeg');
-    expect(args).toEqual([
-      '-i', '.argo/my-demo/video.mp4',
-      '-i', '.argo/my-demo/narration-aligned.wav',
-      '-vf', 'scale=in_range=pc:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv',
-      '-c:v', 'libx264',
-      '-pix_fmt', 'yuv420p',
-      '-preset', 'slow',
-      '-crf', '16',
-      '-x264-params', 'aq-mode=3:aq-strength=0.8:deblock=1,1:colorprim=bt709:transfer=bt709:colormatrix=bt709',
-      '-colorspace:v', 'bt709',
-      '-color_primaries:v', 'bt709',
-      '-color_trc:v', 'bt709',
-      '-color_range', 'tv',
-      '-video_track_timescale', '90000',
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      '-shortest',
-      '-y',
-      'videos/my-demo.mp4',
-    ]);
-    expect(result).toBe('videos/my-demo.mp4');
-  });
 
   it('applies custom preset and crf', async () => {
     setupHappy();

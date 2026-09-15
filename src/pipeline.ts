@@ -280,7 +280,7 @@ export async function runPipeline(
     const alignedWav = createWavBuffer(aligned.samples, 24_000);
     writeFileSync(join(argoDir, 'narration-aligned.wav'), alignedWav);
     overflowMs = aligned.overflowMs;
-    tailPadMs = overflowMs > 0 ? overflowMs + 100 : undefined;
+    tailPadMs = overflowMs > 0 ? overflowMs : undefined;
 
     // Aggregate per-clip word timings into recording-absolute time, keyed
     // by scene. Public artifact consumed by subtitles, compositions, and
