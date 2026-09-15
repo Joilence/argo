@@ -287,23 +287,42 @@ export function remapCameraMoves(
   moves: CameraMove[],
   remap: (timeMs: number) => number,
 ): CameraMove[] {
+  // A move covers [start, end): content at its end instant belongs to whatever
+  // follows, so a freeze starting exactly there must not stretch it. Remap the
+  // end from just inside the move rather than at the boundary itself.
+  const EDGE_MS = 1e-3;
+  const remapEnd = (timeMs: number) => remap(timeMs - EDGE_MS) + EDGE_MS;
+
   return moves.map((m) => {
-    const durationMs = m.durationMs;
     const holdMs = m.holdMs ?? 0;
     const spanMs = moveEndMs(m) - m.startMs;
     const startMs = remap(m.startMs);
     if (spanMs <= 0) return { ...m, startMs };
 
-    const endMs = remap(m.startMs + spanMs);
-    const factor = (endMs - startMs) / spanMs;
+    // Map each phase boundary on its own. A freeze inserts time at one instant
+    // and a ramp changes speed per segment, so a single start-to-end ratio
+    // smears either across all three phases: a freeze inside the hold would
+    // stretch the zoom-in and zoom-out in proportion to its length.
+    const zoomInEndMs = remap(m.startMs + m.durationMs);
+    const zoomOutStartMs = remap(m.startMs + m.durationMs + holdMs);
+    const endMs = remapEnd(moveEndMs(m));
+
+    // One `durationMs` drives both fades, so when the two remap differently
+    // (a gap sped up under only one of them) take their mean. That keeps the
+    // hold exact and the overall span exact, and splits the residual between
+    // the fades rather than pushing it all into one.
+    const fadeMs = ((zoomInEndMs - startMs) + (endMs - zoomOutStartMs)) / 2;
+    const remappedHoldMs = zoomOutStartMs - zoomInEndMs;
     return {
       ...m,
       startMs,
       // Never round a fade to zero: buildCameraMoveFilter divides by it, and
       // `(in_time-S)/0.0000` is a move ffmpeg renders as doing nothing at all.
       // A short fade in a heavily sped-up scene can compress below half a ms.
-      durationMs: Math.max(1, Math.round(durationMs * factor)),
-      ...(m.holdMs === undefined ? {} : { holdMs: Math.round(holdMs * factor) }),
+      durationMs: Math.max(1, Math.round(fadeMs)),
+      ...(m.holdMs === undefined && Math.round(remappedHoldMs) === 0
+        ? {}
+        : { holdMs: Math.round(remappedHoldMs) }),
     };
   });
 }

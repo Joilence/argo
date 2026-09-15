@@ -380,6 +380,35 @@ describe('remapCameraMoves', () => {
     expect(move.holdMs).toBe(2200);
   });
 
+  // A freeze inserts time at one instant, so only the phase it lands in may
+  // grow. Scaling the whole move by one ratio smears it across the zoom-in and
+  // zoom-out too, in proportion to the freeze's length.
+  it('grows only the hold when a freeze lands inside it', () => {
+    const moves: CameraMove[] = [
+      { startMs: 1000, durationMs: 300, holdMs: 1400, x: 10, y: 20, w: 30, h: 40 },
+    ];
+    const freezeRemap = exportTimelineRemap((timeMs) => timeMs, [{ absoluteMs: 1500, durationMs: 5000 }]);
+
+    const [move] = remapCameraMoves(moves, freezeRemap);
+
+    // Zoom-in still ends at 1300, before the freeze. Zoom-out still starts
+    // 1400ms of content later, plus the 5000ms the freeze inserted: 7700.
+    expect(move.startMs).toBe(1000);
+    expect(move.durationMs).toBe(300);
+    expect(move.holdMs).toBe(6400);
+  });
+
+  it('leaves a move alone when a freeze starts exactly where it ends', () => {
+    const moves: CameraMove[] = [
+      { startMs: 1000, durationMs: 300, holdMs: 1400, x: 10, y: 20, w: 30, h: 40 },
+    ];
+    // The move covers [1000, 3000). Content at 3000 is pushed by the freeze,
+    // as adjustPlacementsForFreezes does, but that instant is not the move's.
+    const freezeRemap = exportTimelineRemap((timeMs) => timeMs, [{ absoluteMs: 3000, durationMs: 5000 }]);
+
+    expect(remapCameraMoves(moves, freezeRemap)).toEqual(moves);
+  });
+
   it('never rounds a fade down to zero', () => {
     const moves: CameraMove[] = [
       { startMs: 0, durationMs: 10, holdMs: 0, x: 10, y: 20, w: 30, h: 40 },
