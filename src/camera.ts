@@ -137,11 +137,13 @@ export async function spotlight(
     // the hole. A clip-path polygon can express none of that.
 
     // Interpolated into markup, and TypeScript does not reach a JS caller, so
-    // coerce and clamp: a NaN or a negative renders as a blank scrim with no
-    // hole. The rect needs none of it, coming from getBoundingClientRect or
-    // Playwright.
+    // coerce and clamp: a NaN, a negative radius or a negative size renders as
+    // a blank scrim with no hole. Padding itself may be negative — it shrinks
+    // the hole inside the target, as the clip-path version always allowed — so
+    // the clamp goes on the resulting width and height instead. The rect needs
+    // none of it, coming from getBoundingClientRect or Playwright.
     const num = (v: unknown, fallback: number) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
-    const pad = Math.max(0, num(padding, defaults.padding));
+    const pad = num(padding, defaults.padding);
     const rad = Math.max(0, num(radius, defaults.radius));
     const soft = Math.max(0, num(feather, defaults.feather));
     const dim = Math.min(1, Math.max(0, num(opacity, defaults.opacity)));
@@ -149,8 +151,8 @@ export async function spotlight(
     const id = 'argo-spot-' + Math.random().toString(36).slice(2, 10);
     const x = rect.left - pad;
     const y = rect.top - pad;
-    const w = rect.width + pad * 2;
-    const h = rect.height + pad * 2;
+    const w = Math.max(0, rect.width + pad * 2);
+    const h = Math.max(0, rect.height + pad * 2);
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute(attr, 'spotlight');
@@ -165,18 +167,24 @@ export async function spotlight(
     // Two quiet failures: SVG defaults to linearRGB, which ramps the scrim far
     // too fast right at the hole's edge, and the default -10%/120% filter
     // region clips the blur partway through its ramp on a small target.
+    //
+    // Fills go in inline `style`, not presentation attributes: any page rule
+    // that matches beats an attribute, and icon libraries ship resets like
+    // `svg rect { fill: currentColor }`. That repaints both mask rects alike and
+    // the spotlight silently dims nothing. The old clip-path div was immune for
+    // the same reason, being styled inline.
     svg.innerHTML = `
       <defs>
         <filter id="${id}-feather" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
           <feGaussianBlur stdDeviation="${soft / 2}" />
         </filter>
         <mask id="${id}" maskUnits="userSpaceOnUse">
-          <rect x="0" y="0" width="100%" height="100%" fill="white" />
+          <rect x="0" y="0" width="100%" height="100%" style="fill:white;stroke:none" />
           <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rad}" ry="${rad}"
-                fill="black" ${soft > 0 ? `filter="url(#${id}-feather)"` : ''} />
+                style="fill:black;stroke:none${soft > 0 ? `;filter:url(#${id}-feather)` : ''}" />
         </mask>
       </defs>
-      <rect x="0" y="0" width="100%" height="100%" fill="black" fill-opacity="${dim}" mask="url(#${id})" />
+      <rect x="0" y="0" width="100%" height="100%" style="fill:black;fill-opacity:${dim};stroke:none;mask:url(#${id})" />
     `;
     document.body.appendChild(svg);
     requestAnimationFrame(() => { svg.style.opacity = '1'; });
