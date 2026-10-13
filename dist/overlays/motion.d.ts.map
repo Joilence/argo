@@ -1,0 +1,1 @@
+{"version":3,"file":"motion.d.ts","sourceRoot":"","sources":["../../src/overlays/motion.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,YAAY,EAAE,MAAM,YAAY,CAAC;AAG/C;;;GAGG;AACH,wBAAgB,YAAY,CAAC,MAAM,EAAE,YAAY,EAAE,SAAS,EAAE,MAAM,GAAG,MAAM,CAY5E;AAED,wBAAgB,eAAe,CAAC,MAAM,EAAE,YAAY,EAAE,SAAS,EAAE,MAAM,GAAG,MAAM,CAAC,MAAM,EAAE,MAAM,CAAC,CAY/F"}

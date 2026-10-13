@@ -1,0 +1,167 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { loadConfig } from './config.js';
+import { detectInstallMode, installCommand, isDepInstalled, KOKORO_DEP, OPENAI_DEP, ELEVENLABS_DEP, GEMINI_DEP, SARVAM_DEP, TRANSFORMERS_DEP, WHISPER_DEP, } from './optional-deps.js';
+function checkCommand(cmd, args) {
+    try {
+        return execFileSync(cmd, args, { encoding: 'utf-8', stdio: 'pipe' }).trim();
+    }
+    catch {
+        return null;
+    }
+}
+export async function runDoctor(cwd = process.cwd()) {
+    const results = [];
+    // 1. ffmpeg
+    const ffmpegVersion = checkCommand('ffmpeg', ['-version']);
+    if (ffmpegVersion) {
+        const version = ffmpegVersion.split('\n')[0];
+        results.push({ name: 'ffmpeg', status: 'ok', message: version });
+    }
+    else {
+        results.push({ name: 'ffmpeg', status: 'fail', message: 'Not found. Install: brew install ffmpeg (macOS) or apt install ffmpeg (Linux)' });
+    }
+    // 2. ffprobe
+    const ffprobeVersion = checkCommand('ffprobe', ['-version']);
+    if (ffprobeVersion) {
+        results.push({ name: 'ffprobe', status: 'ok', message: 'Available' });
+    }
+    else {
+        results.push({ name: 'ffprobe', status: 'fail', message: 'Not found (usually comes with ffmpeg)' });
+    }
+    // 3. Playwright browsers
+    const browsers = ['chromium', 'webkit', 'firefox'];
+    for (const browser of browsers) {
+        const check = checkCommand('npx', ['playwright', 'install', '--dry-run', browser]);
+        // If playwright is installed, check the browser registry
+        const registryPath = `node_modules/playwright-core/.local-browsers`;
+        if (existsSync(registryPath)) {
+            results.push({ name: `playwright/${browser}`, status: 'ok', message: 'Installed' });
+        }
+        else {
+            // Just check if playwright itself is available
+            const pwVersion = checkCommand('npx', ['playwright', '--version']);
+            if (pwVersion) {
+                results.push({ name: `playwright/${browser}`, status: 'warn', message: `Playwright ${pwVersion} found — run: npx playwright install ${browser}` });
+            }
+            else {
+                results.push({ name: `playwright/${browser}`, status: 'fail', message: 'Playwright not found' });
+            }
+        }
+    }
+    // 4. Config file
+    const configFiles = ['argo.config.mjs', 'argo.config.js', 'argo.config.ts'];
+    const foundConfig = configFiles.find(f => existsSync(f));
+    if (foundConfig) {
+        results.push({ name: 'config', status: 'ok', message: foundConfig });
+        // 5. Load and validate config
+        try {
+            const config = await loadConfig(cwd);
+            // baseURL
+            if (config.baseURL) {
+                results.push({ name: 'baseURL', status: 'ok', message: config.baseURL });
+            }
+            else {
+                results.push({ name: 'baseURL', status: 'warn', message: 'Not set — required for record/pipeline. Set in config or use --base-url' });
+            }
+            // demosDir
+            if (existsSync(config.demosDir)) {
+                results.push({ name: 'demosDir', status: 'ok', message: config.demosDir });
+            }
+            else {
+                results.push({ name: 'demosDir', status: 'warn', message: `${config.demosDir} does not exist — run: npx argo init` });
+            }
+            // thumbnail
+            if (config.export.thumbnailPath) {
+                if (existsSync(config.export.thumbnailPath)) {
+                    results.push({ name: 'thumbnail', status: 'ok', message: config.export.thumbnailPath });
+                }
+                else {
+                    results.push({ name: 'thumbnail', status: 'warn', message: `${config.export.thumbnailPath} not found — video will export without cover art` });
+                }
+            }
+            // video settings
+            const { width, height, browser, deviceScaleFactor } = config.video;
+            results.push({ name: 'video', status: 'ok', message: `${width}x${height} @ ${browser}, scale=${deviceScaleFactor}` });
+            if (deviceScaleFactor > 1 && browser === 'webkit') {
+                results.push({ name: 'video/dpi', status: 'warn', message: 'deviceScaleFactor > 1 has known issues with webkit — stick to 1 for now' });
+            }
+        }
+        catch (err) {
+            results.push({ name: 'config/load', status: 'fail', message: err.message });
+        }
+    }
+    else {
+        results.push({ name: 'config', status: 'warn', message: 'No config file found — run: npx argo init' });
+    }
+    results.push(...checkEngines());
+    return results;
+}
+/** TTS engines ship as optional peer dependencies, so which ones actually
+ *  work depends on what the user installed. Report each one, and for the
+ *  missing ones give the command that matches how Argo itself was installed
+ *  (project, global, and npx each need different syntax). */
+function checkEngines() {
+    const mode = detectInstallMode();
+    // Every engine `engines.*` exposes that ships as an npm package. mlxAudio is
+    // absent on purpose: it talks HTTP to a separately started Python server, so
+    // there is nothing to resolve. `transcribe` is Whisper STT, not a voice, so
+    // it is reported but does not count as a usable engine.
+    const specs = [
+        ['kokoro', KOKORO_DEP, true],
+        ['openai', OPENAI_DEP, true],
+        ['elevenlabs', ELEVENLABS_DEP, true],
+        ['gemini', GEMINI_DEP, true],
+        ['sarvam', SARVAM_DEP, true],
+        ['transformers', TRANSFORMERS_DEP, true],
+        ['transcribe', WHISPER_DEP, false],
+    ];
+    const results = [
+        { name: 'install mode', status: 'ok', message: mode },
+    ];
+    let anyEngine = false;
+    for (const [name, spec, isVoiceEngine] of specs) {
+        if (isDepInstalled(spec)) {
+            if (isVoiceEngine)
+                anyEngine = true;
+            results.push({ name: `engine/${name}`, status: 'ok', message: 'installed' });
+        }
+        else {
+            results.push({
+                name: `engine/${name}`,
+                status: 'warn',
+                message: `not installed. ${installCommand(spec, mode)}`,
+            });
+        }
+    }
+    if (!anyEngine) {
+        results.push({
+            name: 'engines',
+            status: 'warn',
+            message: `No npm TTS engine installed. ${installCommand(KOKORO_DEP, mode)} (or use engines.mlxAudio)`,
+        });
+    }
+    return results;
+}
+export function formatDoctorResults(results) {
+    const lines = ['Argo Doctor', '─'.repeat(50)];
+    for (const r of results) {
+        const icon = r.status === 'ok' ? '✓' : r.status === 'warn' ? '!' : '✗';
+        const prefix = r.status === 'ok' ? '  ' : r.status === 'warn' ? '  ' : '  ';
+        lines.push(`${prefix}${icon} ${r.name.padEnd(22)} ${r.message}`);
+    }
+    lines.push('─'.repeat(50));
+    const fails = results.filter(r => r.status === 'fail').length;
+    const warns = results.filter(r => r.status === 'warn').length;
+    if (fails > 0) {
+        lines.push(`  ${fails} issue(s) need fixing`);
+    }
+    else if (warns > 0) {
+        lines.push(`  All good, ${warns} warning(s)`);
+    }
+    else {
+        lines.push('  All checks passed');
+    }
+    return lines.join('\n');
+}
+//# sourceMappingURL=doctor.js.map

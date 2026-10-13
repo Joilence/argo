@@ -1,0 +1,1 @@
+{"version":3,"file":"index.d.ts","sourceRoot":"","sources":["../../../src/transitions/shaders/index.ts"],"names":[],"mappings":"AAWA,eAAO,MAAM,YAAY,oQAKf,CAAC;AACX,MAAM,MAAM,UAAU,GAAG,CAAC,OAAO,YAAY,CAAC,CAAC,MAAM,CAAC,CAAC;AAEvD,eAAO,MAAM,OAAO,EAAE,MAAM,CAAC,UAAU,EAAE,MAAM,CAEhB,CAAC;AAEhC,wBAAgB,iBAAiB,CAAC,IAAI,EAAE,MAAM,GAAG,IAAI,IAAI,UAAU,CAElE"}

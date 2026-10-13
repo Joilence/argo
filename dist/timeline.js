@@ -1,0 +1,147 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { schedulePlacements } from './tts/align.js';
+import { ClipCache } from './tts/cache.js';
+import { parseWavHeader } from './tts/engine.js';
+/**
+ * Where a demo's scene manifest lives, for the base demo or for one language.
+ *
+ * Language manifests sit in a `locales/` subdirectory rather than beside the
+ * base one, because `discoverDemos` treats every `*.scenes.json` in `demosDir`
+ * as a demo: a sibling `checkout.de.scenes.json` would register as a phantom
+ * demo named `checkout.de` whose `.demo.ts` does not exist, and `--all` would
+ * then fail on it.
+ *
+ * There is deliberately no fallback to the base manifest. A missing translation
+ * would otherwise narrate the demo in the source language while every other
+ * artifact of the run claimed it was localised.
+ */
+export function resolveManifestPath(demosDir, demoName, lang) {
+    if (lang === undefined)
+        return join(demosDir, `${demoName}.scenes.json`);
+    assertValidLang(lang);
+    return join(demosDir, 'locales', `${demoName}.${lang}.scenes.json`);
+}
+/** The `.argo` subdirectory for a run, which is per language so that clips, timings and word transcripts of two locales cannot be crossed. */
+export function resolveArgoSubdir(demoName, lang) {
+    if (lang === undefined)
+        return demoName;
+    assertValidLang(lang);
+    return `${demoName}-${lang}`;
+}
+/**
+ * The basename a run's artifacts are written under in `outputDir`.
+ *
+ * Dot-separated, matching the existing `<demo>.<variant>.srt` and `.vtt`
+ * sidecars. Note this does not match the variant *video*, which README
+ * documents as `<demo>-<variant>.mp4`: upstream already spells the two
+ * conventions differently and this follows the sidecar one.
+ *
+ * Without a distinct name a language run overwrites the base demo's video,
+ * subtitles and metadata, which is silent: the files are the right shape and
+ * describe a different recording.
+ */
+export function resolveOutputName(demoName, lang) {
+    if (lang === undefined)
+        return demoName;
+    assertValidLang(lang);
+    return `${demoName}.${lang}`;
+}
+/**
+ * Reject a language tag that cannot safely be spliced into a path.
+ *
+ * `lang` reaches `join(demosDir, 'locales', ...)` on the read side and a
+ * `mkdirSync` under `.argo/` on the write side, so an unchecked `../../..`
+ * both reads outside the demos directory and writes outside `.argo`:
+ * `lang = '../../../../tmp/pwn'` resolves to `../tmp/pwn` and `../tmp/pwn.mp4`.
+ * Region subtags are legal, which is why this is not simply alphanumeric.
+ *
+ * Called by the three resolvers above rather than only at the CLI, because
+ * `runPipeline` and `PipelineOptions` are exported from `src/index.ts` while
+ * this is not: a library caller could not apply the check even knowing it
+ * existed, and a future `--lang` on `export` or `validate` would have to
+ * remember to. Guarding where the value is consumed cannot be forgotten.
+ */
+export function assertValidLang(lang) {
+    if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(lang)) {
+        throw new Error(`invalid --lang "${lang}". Expected a language tag such as "de", "fr" or "zh-CN".`);
+    }
+}
+export function readScenesManifest(manifestPath) {
+    const raw = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    if (!Array.isArray(raw)) {
+        throw new Error(`Manifest ${manifestPath} must contain a JSON array`);
+    }
+    return raw.map((entry) => {
+        if (!entry || typeof entry !== 'object' || typeof entry.scene !== 'string') {
+            throw new Error(`Manifest ${manifestPath} contains an entry without a valid scene name`);
+        }
+        return entry;
+    });
+}
+export function buildSceneTexts(entries) {
+    const sceneTexts = {};
+    for (const entry of entries) {
+        if (typeof entry.text === 'string' && entry.text.trim().length > 0) {
+            sceneTexts[entry.scene] = entry.text;
+        }
+    }
+    return sceneTexts;
+}
+export function buildSceneDurationsFromCache(demoName, entries, defaults, projectRoot = '.') {
+    const cache = new ClipCache(projectRoot);
+    const sceneDurations = {};
+    for (const entry of entries) {
+        if (typeof entry.text !== 'string' || entry.text.trim().length === 0)
+            continue;
+        const cacheEntry = {
+            scene: entry.scene,
+            text: entry.text,
+            voice: entry.voice ?? defaults.voice,
+            speed: entry.speed ?? defaults.speed,
+            lang: entry.lang,
+        };
+        const clipPath = cache.getClipPath(demoName, cacheEntry);
+        if (!existsSync(clipPath))
+            continue;
+        const wavBuf = readFileSync(clipPath);
+        sceneDurations[entry.scene] = parseWavHeader(wavBuf).durationMs;
+    }
+    return sceneDurations;
+}
+export function computeHeadTrimMs(timing, leadInMs = 200, minTrimMs = 500) {
+    const markTimes = Object.values(timing);
+    if (markTimes.length === 0)
+        return 0;
+    const firstMarkMs = Math.min(...markTimes);
+    const headTrimMs = Math.max(0, firstMarkMs - leadInMs);
+    return headTrimMs <= minTrimMs ? 0 : headTrimMs;
+}
+export function buildPlacementsFromTimingAndDurations(timing, sceneDurations, totalDurationMs) {
+    const voicedPlacements = schedulePlacements(Object.entries(timing)
+        .filter(([scene]) => (sceneDurations[scene] ?? 0) > 0)
+        .map(([scene, startMs]) => ({
+        scene,
+        startMs,
+        durationMs: sceneDurations[scene],
+    })));
+    const voicedScenes = new Set(voicedPlacements.map((p) => p.scene));
+    const sortedMarks = Object.entries(timing).sort((a, b) => a[1] - b[1]);
+    const silentPlacements = sortedMarks.flatMap(([scene, startMs], index) => {
+        if (voicedScenes.has(scene))
+            return [];
+        const endMs = index + 1 < sortedMarks.length ? sortedMarks[index + 1][1] : totalDurationMs;
+        return [{ scene, startMs, endMs }];
+    });
+    return [...voicedPlacements, ...silentPlacements].sort((a, b) => a.startMs - b.startMs);
+}
+export function shiftPlacements(placements, offsetMs) {
+    if (offsetMs <= 0)
+        return placements;
+    return placements.map((placement) => ({
+        ...placement,
+        startMs: Math.max(0, placement.startMs - offsetMs),
+        endMs: Math.max(0, placement.endMs - offsetMs),
+    }));
+}
+//# sourceMappingURL=timeline.js.map

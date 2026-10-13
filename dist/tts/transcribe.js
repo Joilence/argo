@@ -1,0 +1,86 @@
+/**
+ * Whisper STT for word-level narration timestamps.
+ *
+ * Argo's TTS engines render audio; downstream consumers (subtitles,
+ * compositions, preview UI) want to know which word is spoken at video
+ * time T. Phoneme-level estimates from the upstream engine drift, so
+ * the source of truth is the rendered audio itself — transcribe it
+ * back with Whisper and read the per-word timestamps.
+ *
+ * Uses `@huggingface/transformers`. Whisper runs locally via ONNX, no cloud
+ * round-trip. The pipeline instance is cached per process so repeated calls
+ * reuse the loaded model.
+ *
+ * The import is dynamic and lives inside `getTranscriber()` on purpose.
+ * `@huggingface/transformers` is an optional peer dependency that pulls
+ * ~400MB of ONNX runtime, and transcription is opt-in (`tts.transcribe`).
+ * A top-level import would make every Argo command, including `validate`
+ * and `export`, fail to even load when the package is absent.
+ */
+import { spawnSync } from 'node:child_process';
+import { importOptional, WHISPER_DEP } from '../optional-deps.js';
+export const DEFAULT_WHISPER_MODEL = 'Xenova/whisper-base.en';
+/** Whisper's required audio sample rate. */
+const WHISPER_SR = 16_000;
+let cached = null;
+/** Lazy-load and cache one Whisper pipeline per process per model id.
+ *  Switching model busts the cache (rare). */
+async function getTranscriber(model) {
+    if (cached?.model === model)
+        return cached.transcriber;
+    const { pipeline } = await importOptional(() => import('@huggingface/transformers'), WHISPER_DEP);
+    const transcriber = (await pipeline('automatic-speech-recognition', model));
+    cached = { model, transcriber };
+    return transcriber;
+}
+/** Transcribe a WAV file into word-level timestamps.
+ *
+ *  Whisper expects 16kHz mono Float32. Argo's TTS writes 24kHz mono Float32,
+ *  and `transformers.js` in Node lacks `AudioContext` — so we shell out to
+ *  ffmpeg (already a hard dep for export) to resample to 16kHz Float32 LE
+ *  on stdout, then hand the raw samples to the pipeline. ~50ms overhead
+ *  per clip; the model load (cold start) is the dominant cost.
+ */
+export async function transcribeWav(wavPath, opts = {}) {
+    const model = opts.model ?? DEFAULT_WHISPER_MODEL;
+    const transcriber = await getTranscriber(model);
+    const audio = decodeTo16kFloat32(wavPath);
+    const result = await transcriber(audio, {
+        return_timestamps: 'word',
+        ...(opts.language ? { language: opts.language } : {}),
+    });
+    return (result.chunks ?? [])
+        .map((c) => ({
+        text: c.text.trimStart(),
+        start: c.timestamp[0],
+        end: c.timestamp[1] ?? c.timestamp[0],
+    }))
+        .filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end));
+}
+/** Pipe a WAV through ffmpeg to produce 16kHz mono Float32 LE raw samples,
+ *  then return as a Float32Array sized to the byte length. ffmpeg's `f32le`
+ *  format is already what Whisper consumes internally — no further work. */
+function decodeTo16kFloat32(wavPath) {
+    const result = spawnSync('ffmpeg', [
+        '-nostdin',
+        '-loglevel', 'error',
+        '-i', wavPath,
+        '-ac', '1',
+        '-ar', String(WHISPER_SR),
+        '-f', 'f32le',
+        '-',
+    ], { encoding: 'buffer', maxBuffer: 256 * 1024 * 1024 });
+    if (result.status !== 0) {
+        throw new Error(`ffmpeg failed to decode ${wavPath} (exit ${result.status}): ${result.stderr.toString().slice(0, 300)}`);
+    }
+    const buf = result.stdout;
+    // Float32 = 4 bytes per sample. ffmpeg always writes LE on this path.
+    return new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 4));
+}
+/** Pre-warm the Whisper pipeline so the first `transcribeWav()` call
+ *  pays the model-load cost up-front (the pipeline can then reuse the
+ *  loaded model for all subsequent clips). Safe to call multiple times. */
+export async function warmTranscriber(model = DEFAULT_WHISPER_MODEL) {
+    await getTranscriber(model);
+}
+//# sourceMappingURL=transcribe.js.map

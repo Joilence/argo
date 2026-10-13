@@ -1,0 +1,123 @@
+import { splitTextForTTS, concatSamples } from '../engine.js';
+import { importOptional, TRANSFORMERS_DEP } from '../../optional-deps.js';
+export class TransformersEngine {
+    pipeline = null;
+    initPromise = null;
+    model;
+    dtype;
+    device;
+    speakerEmbeddings;
+    numInferenceSteps;
+    lang;
+    constructor(options) {
+        this.model = options?.model ?? 'onnx-community/Supertonic-TTS-ONNX';
+        this.dtype = options?.dtype ?? 'q8';
+        this.device = options?.device ?? null;
+        this.speakerEmbeddings = options?.speakerEmbeddings;
+        this.numInferenceSteps = options?.numInferenceSteps ?? 10;
+        this.lang = options?.lang;
+    }
+    describe() {
+        return { engine: 'transformers', model: this.model, dtype: this.dtype };
+    }
+    async getPipeline() {
+        if (this.pipeline)
+            return this.pipeline;
+        if (!this.initPromise) {
+            this.initPromise = (async () => {
+                // `pipeline` stays loosely typed: dtype/device are user-supplied
+                // strings, and the SDK types them as closed literal unions.
+                const { pipeline } = await importOptional(() => import('@huggingface/transformers'), TRANSFORMERS_DEP).catch((err) => {
+                    this.initPromise = null;
+                    throw err;
+                });
+                try {
+                    this.pipeline = await pipeline('text-to-speech', this.model, {
+                        dtype: this.dtype,
+                        device: this.device,
+                    });
+                }
+                catch (err) {
+                    this.initPromise = null;
+                    const msg = err.message;
+                    // Detect missing quantized model files and suggest dtype: 'fp32'
+                    if (msg.includes('quantized') || msg.includes('Could not locate file')) {
+                        throw new Error(`Failed to load model "${this.model}" with dtype "${this.dtype}": quantized model files not found. ` +
+                            `This model may not ship quantized weights. ` +
+                            `Try setting dtype: 'fp32' in your engine config: engines.transformers({ model: '${this.model}', dtype: 'fp32' })`);
+                    }
+                    throw new Error(`Failed to initialize Transformers TTS pipeline (model: ${this.model}, dtype: ${this.dtype}). ` +
+                        `This may require an internet connection for first-time model download. ` +
+                        `Original error: ${msg}`);
+                }
+                return this.pipeline;
+            })();
+        }
+        return this.initPromise;
+    }
+    async generate(text, options) {
+        if (!text?.trim())
+            throw new Error('TTS text must not be empty');
+        const tts = await this.getPipeline();
+        const { createWavBuffer } = await import('../engine.js');
+        const TARGET_RATE = 24000;
+        // Build base generation options.
+        // The voice field may contain engine-specific values (e.g., 'af_heart' for Kokoro).
+        // Only use it as speaker_embeddings if it looks like a URL or file path —
+        // otherwise fall back to the config-level speakerEmbeddings and warn.
+        let speaker = this.speakerEmbeddings;
+        if (options.voice) {
+            if (options.voice.includes('/') || options.voice.includes('\\') || options.voice.endsWith('.bin')) {
+                speaker = options.voice;
+            }
+            else if (!this.speakerEmbeddings) {
+                console.warn(`Warning: voice "${options.voice}" is not a valid speaker embedding path for Transformers engine ` +
+                    `(model: ${this.model}). Ignoring — using default voice. ` +
+                    `Tip: voice values like "af_heart" are Kokoro-specific. For Transformers, use a path to a .bin embedding file.`);
+            }
+        }
+        const baseOpts = {
+            speed: options.speed ?? 1.0,
+            num_inference_steps: this.numInferenceSteps,
+        };
+        if (speaker)
+            baseOpts.speaker_embeddings = speaker;
+        // Wrap text in language tags if lang is set (per-scene or engine default).
+        // Models like Supertonic-TTS-2 require <en>text</en> format — without
+        // these tags the model produces garbled audio.
+        const lang = options.lang ?? this.lang;
+        const chunks = splitTextForTTS(text);
+        const audioChunks = [];
+        let sampleRate = TARGET_RATE;
+        for (const chunk of chunks) {
+            const input = lang ? `<${lang}>${chunk}</${lang}>` : chunk;
+            let audio;
+            try {
+                audio = await tts(input, baseOpts);
+            }
+            catch (err) {
+                throw new Error(`Transformers TTS failed to generate audio for text "${chunk.substring(0, 80)}..." ` +
+                    `(model: ${this.model}). Original error: ${err.message}`);
+            }
+            const samples = audio.audio ?? audio.data;
+            if (!samples || !(samples instanceof Float32Array)) {
+                throw new Error(`Transformers TTS returned unexpected audio format from model ${this.model}. ` +
+                    'Expected Float32Array in audio.audio or audio.data.');
+            }
+            sampleRate = audio.sampling_rate ?? TARGET_RATE;
+            audioChunks.push(samples);
+        }
+        // Concatenate chunks with silence gaps
+        const combined = concatSamples(audioChunks, sampleRate);
+        // Resample to 24kHz if needed (pipeline alignment assumes 24kHz).
+        // Use ffmpeg via convertToWav for proper anti-aliased resampling —
+        // naive linear interpolation causes garbled audio at large ratios (e.g., 44.1kHz → 24kHz).
+        if (sampleRate !== TARGET_RATE) {
+            const { convertToWav } = await import('../engine.js');
+            const nativeWav = createWavBuffer(combined, sampleRate);
+            return convertToWav(nativeWav);
+        }
+        return createWavBuffer(combined, sampleRate);
+    }
+}
+//# sourceMappingURL=transformers.js.map

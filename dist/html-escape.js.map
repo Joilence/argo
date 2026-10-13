@@ -1,0 +1,1 @@
+{"version":3,"file":"html-escape.js","sourceRoot":"","sources":["../src/html-escape.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AACH,MAAM,UAAU,UAAU,CAAC,CAAS;IAClC,OAAO,CAAC;SACL,OAAO,CAAC,IAAI,EAAE,OAAO,CAAC;SACtB,OAAO,CAAC,IAAI,EAAE,MAAM,CAAC;SACrB,OAAO,CAAC,IAAI,EAAE,MAAM,CAAC;SACrB,OAAO,CAAC,IAAI,EAAE,QAAQ,CAAC,CAAC;AAC7B,CAAC"}

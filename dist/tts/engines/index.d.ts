@@ -1,0 +1,32 @@
+import type { TTSEngine } from '../engine.js';
+import { type KokoroEngineOptions } from './kokoro.js';
+import { type OpenAIEngineOptions } from './openai.js';
+import { type ElevenLabsEngineOptions } from './elevenlabs.js';
+import { type GeminiEngineOptions } from './gemini.js';
+import { type SarvamEngineOptions } from './sarvam.js';
+import { type MlxAudioEngineOptions } from './mlx-audio.js';
+import { type TransformersEngineOptions } from './transformers.js';
+export declare const engines: {
+    kokoro: (opts?: KokoroEngineOptions) => TTSEngine;
+    openai: (opts?: OpenAIEngineOptions) => TTSEngine;
+    elevenlabs: (opts?: ElevenLabsEngineOptions) => TTSEngine;
+    gemini: (opts?: GeminiEngineOptions) => TTSEngine;
+    sarvam: (opts?: SarvamEngineOptions) => TTSEngine;
+    mlxAudio: (opts?: MlxAudioEngineOptions) => TTSEngine;
+    transformers: (opts?: TransformersEngineOptions) => TTSEngine;
+};
+export type { KokoroEngineOptions } from './kokoro.js';
+export type { OpenAIEngineOptions } from './openai.js';
+export type { ElevenLabsEngineOptions } from './elevenlabs.js';
+export type { GeminiEngineOptions } from './gemini.js';
+export type { SarvamEngineOptions } from './sarvam.js';
+export type { MlxAudioEngineOptions } from './mlx-audio.js';
+export type { TransformersEngineOptions } from './transformers.js';
+export { KokoroEngine } from './kokoro.js';
+export { OpenAIEngine } from './openai.js';
+export { ElevenLabsEngine } from './elevenlabs.js';
+export { GeminiEngine } from './gemini.js';
+export { SarvamEngine } from './sarvam.js';
+export { MlxAudioEngine } from './mlx-audio.js';
+export { TransformersEngine } from './transformers.js';
+//# sourceMappingURL=index.d.ts.map

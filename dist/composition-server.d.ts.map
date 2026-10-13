@@ -1,0 +1,1 @@
+{"version":3,"file":"composition-server.d.ts","sourceRoot":"","sources":["../src/composition-server.ts"],"names":[],"mappings":"AA6CA,MAAM,WAAW,iBAAiB;IAChC,+EAA+E;IAC/E,GAAG,EAAE,MAAM,CAAC;IACZ,IAAI,EAAE,MAAM,CAAC;IACb,KAAK,EAAE,MAAM,OAAO,CAAC,IAAI,CAAC,CAAC;CAC5B;AAED,wBAAgB,sBAAsB,CACpC,OAAO,EAAE,MAAM,EACf,eAAe,EAAE,MAAM,GACtB,OAAO,CAAC,iBAAiB,CAAC,CAgF5B"}

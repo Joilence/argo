@@ -1,0 +1,495 @@
+const CAMERA_ATTR = 'data-argo-camera';
+const OVERLAY_ID_PREFIX = 'argo-overlay-';
+const CONFETTI_ID = 'argo-confetti';
+const ZOOM_WRAPPER_ID = 'argo-camera-zoom-wrapper';
+async function resolveRect(page, selectorOrLocator) {
+    if (typeof selectorOrLocator === 'string') {
+        return { selector: selectorOrLocator, rect: null };
+    }
+    const box = await selectorOrLocator.boundingBox();
+    if (!box)
+        return { selector: null, rect: null };
+    return {
+        selector: null,
+        rect: {
+            left: box.x,
+            top: box.y,
+            right: box.x + box.width,
+            bottom: box.y + box.height,
+            width: box.width,
+            height: box.height,
+        },
+    };
+}
+async function runCameraEffect(page, fn, args, totalMs, wait) {
+    try {
+        await page.evaluate(fn, args);
+        if (wait) {
+            await page.waitForTimeout(totalMs);
+        }
+    }
+    catch (err) {
+        const msg = err?.message ?? '';
+        if (!msg.includes('Target closed') && !msg.includes('destroyed') && !msg.includes('closed') && !msg.includes('disposed')) {
+            console.warn(`Warning: camera effect failed: ${msg}`);
+        }
+    }
+}
+/**
+ * Resolved in the signature and reused as the page function's fallback, so the
+ * two cannot drift into disagreeing about what a default is.
+ */
+const SPOTLIGHT_DEFAULTS = { opacity: 0.7, padding: 12, radius: 10, feather: 12 };
+export async function spotlight(page, selectorOrLocator, opts) {
+    const duration = opts?.duration ?? 3000;
+    const fadeIn = opts?.fadeIn ?? 400;
+    const fadeOut = opts?.fadeOut ?? 400;
+    const opacity = opts?.opacity ?? SPOTLIGHT_DEFAULTS.opacity;
+    const padding = opts?.padding ?? SPOTLIGHT_DEFAULTS.padding;
+    const radius = opts?.radius ?? SPOTLIGHT_DEFAULTS.radius;
+    const feather = opts?.feather ?? SPOTLIGHT_DEFAULTS.feather;
+    const wait = opts?.wait ?? false;
+    const { selector, rect: preRect } = await resolveRect(page, selectorOrLocator);
+    await runCameraEffect(page, ({ selector, preRect, duration, fadeIn, fadeOut, opacity, padding, radius, feather, defaults, attr }) => {
+        const rect = preRect ?? (() => {
+            const target = document.querySelector(selector);
+            if (!target) {
+                console.warn('[argo] camera effect: no element found for selector "' + selector + '"');
+                return null;
+            }
+            return target.getBoundingClientRect();
+        })();
+        if (!rect)
+            return;
+        // A white full-viewport rect keeps the scrim, a black rounded rect punched
+        // through it drops the scrim, and blurring that black rect is what feathers
+        // the hole. A clip-path polygon can express none of that.
+        // Interpolated into markup, and TypeScript does not reach a JS caller, so
+        // coerce and clamp: a NaN, a negative radius or a negative size renders as
+        // a blank scrim with no hole. Padding itself may be negative — it shrinks
+        // the hole inside the target, as the clip-path version always allowed — so
+        // the clamp goes on the resulting width and height instead. The rect needs
+        // none of it, coming from getBoundingClientRect or Playwright.
+        const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+        const pad = num(padding, defaults.padding);
+        const rad = Math.max(0, num(radius, defaults.radius));
+        const soft = Math.max(0, num(feather, defaults.feather));
+        const dim = Math.min(1, Math.max(0, num(opacity, defaults.opacity)));
+        const id = 'argo-spot-' + Math.random().toString(36).slice(2, 10);
+        const x = rect.left - pad;
+        const y = rect.top - pad;
+        const w = Math.max(0, rect.width + pad * 2);
+        const h = Math.max(0, rect.height + pad * 2);
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute(attr, 'spotlight');
+        svg.style.cssText = `
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      z-index: 99990; pointer-events: none;
+      opacity: 0; transition: opacity ${fadeIn}ms cubic-bezier(0.4, 0, 0.2, 1);
+    `;
+        // No viewBox, so user units map 1:1 onto the CSS pixels that
+        // getBoundingClientRect and Playwright's boundingBox both report.
+        //
+        // Two quiet failures: SVG defaults to linearRGB, which ramps the scrim far
+        // too fast right at the hole's edge, and the default -10%/120% filter
+        // region clips the blur partway through its ramp on a small target.
+        //
+        // Fills go in inline `style`, not presentation attributes: any page rule
+        // that matches beats an attribute, and icon libraries ship resets like
+        // `svg rect { fill: currentColor }`. That repaints both mask rects alike and
+        // the spotlight silently dims nothing. The old clip-path div was immune for
+        // the same reason, being styled inline.
+        svg.innerHTML = `
+      <defs>
+        <filter id="${id}-feather" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+          <feGaussianBlur stdDeviation="${soft / 2}" />
+        </filter>
+        <mask id="${id}" maskUnits="userSpaceOnUse">
+          <rect x="0" y="0" width="100%" height="100%" style="fill:white;stroke:none" />
+          <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rad}" ry="${rad}"
+                style="fill:black;stroke:none${soft > 0 ? `;filter:url(#${id}-feather)` : ''}" />
+        </mask>
+      </defs>
+      <rect x="0" y="0" width="100%" height="100%" style="fill:black;fill-opacity:${dim};stroke:none;mask:url(#${id})" />
+    `;
+        document.body.appendChild(svg);
+        requestAnimationFrame(() => { svg.style.opacity = '1'; });
+        setTimeout(() => {
+            svg.style.transition = `opacity ${fadeOut}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+            svg.style.opacity = '0';
+            setTimeout(() => svg.remove(), fadeOut);
+        }, duration);
+    }, { selector, preRect, duration, fadeIn, fadeOut, opacity, padding, radius, feather, defaults: SPOTLIGHT_DEFAULTS, attr: CAMERA_ATTR }, duration + fadeOut, wait);
+}
+export async function focusRing(page, selectorOrLocator, opts) {
+    const duration = opts?.duration ?? 3000;
+    const fadeIn = opts?.fadeIn ?? 400;
+    const fadeOut = opts?.fadeOut ?? 400;
+    const color = opts?.color ?? '#3b82f6';
+    const ringWidth = opts?.width ?? 3;
+    const pulse = opts?.pulse ?? true;
+    const wait = opts?.wait ?? false;
+    const { selector, rect: preRect } = await resolveRect(page, selectorOrLocator);
+    await runCameraEffect(page, ({ selector, preRect, duration, fadeIn, fadeOut, color, ringWidth, pulse, attr }) => {
+        const rect = preRect ?? (() => {
+            const target = document.querySelector(selector);
+            if (!target) {
+                console.warn('[argo] camera effect: no element found for selector "' + selector + '"');
+                return null;
+            }
+            return target.getBoundingClientRect();
+        })();
+        if (!rect)
+            return;
+        // Inject pulse animation if needed
+        if (pulse) {
+            const style = document.createElement('style');
+            style.setAttribute(attr, 'focus-ring-style');
+            style.textContent = `
+        @keyframes argo-focus-pulse {
+          0%, 100% { box-shadow: 0 0 0 ${ringWidth}px ${color}66, 0 0 0 ${ringWidth * 2}px ${color}26; }
+          50% { box-shadow: 0 0 0 ${ringWidth + 1}px ${color}99, 0 0 0 ${ringWidth * 2 + 2}px ${color}40, 0 0 20px ${color}4d; }
+        }
+      `;
+            document.head.appendChild(style);
+        }
+        const ring = document.createElement('div');
+        ring.setAttribute(attr, 'focus-ring');
+        // When using pre-resolved rect, we don't have a DOM target to read borderRadius from
+        const borderRadius = preRect ? ringWidth : Math.min(8, parseInt(getComputedStyle(document.querySelector(selector)).borderRadius) || 0) + ringWidth;
+        ring.style.cssText = `
+      position: fixed; z-index: 99990; pointer-events: none;
+      left: ${rect.left - ringWidth}px; top: ${rect.top - ringWidth}px;
+      width: ${rect.width + ringWidth * 2}px; height: ${rect.height + ringWidth * 2}px;
+      border-radius: ${borderRadius}px;
+      box-shadow: 0 0 0 ${ringWidth}px ${color}66, 0 0 0 ${ringWidth * 2}px ${color}26;
+      ${pulse ? 'animation: argo-focus-pulse 1.5s ease-in-out infinite;' : ''}
+      opacity: 0; transition: opacity ${fadeIn}ms ease-out;
+    `;
+        document.body.appendChild(ring);
+        requestAnimationFrame(() => { ring.style.opacity = '1'; });
+        setTimeout(() => {
+            ring.style.transition = `opacity ${fadeOut}ms ease-out`;
+            ring.style.opacity = '0';
+            setTimeout(() => {
+                ring.remove();
+                document.querySelectorAll(`[${attr}="focus-ring-style"]`).forEach(el => el.remove());
+            }, fadeOut);
+        }, duration);
+    }, { selector, preRect, duration, fadeIn, fadeOut, color, ringWidth, pulse, attr: CAMERA_ATTR }, duration + fadeOut, wait);
+}
+export async function dimAround(page, selectorOrLocator, opts) {
+    const duration = opts?.duration ?? 3000;
+    const fadeIn = opts?.fadeIn ?? 400;
+    const fadeOut = opts?.fadeOut ?? 400;
+    const dimOpacity = opts?.dimOpacity ?? 0.3;
+    const wait = opts?.wait ?? false;
+    const { selector, rect: preRect } = await resolveRect(page, selectorOrLocator);
+    // When a Locator is passed (preRect != null), we don't have a DOM element reference,
+    // so sibling-dimming is not possible. Fall back to a spotlight-style full-page dim.
+    if (preRect !== null) {
+        console.warn('[argo] dimAround: Locator passed — falling back to spotlight-style dim (sibling dimming requires a CSS selector)');
+        await runCameraEffect(page, ({ preRect, duration, fadeIn, fadeOut, dimOpacity, attr }) => {
+            const rect = preRect;
+            const padding = 0;
+            const overlay = document.createElement('div');
+            overlay.setAttribute(attr, 'dim-around');
+            // `evenodd`: both rings share a winding order, so `nonzero` would fill
+            // the interior instead of clearing it and paint a scrim with no hole.
+            overlay.style.cssText = `
+        position: fixed; inset: 0; z-index: 99990; pointer-events: none;
+        background: rgba(0,0,0,${1 - dimOpacity});
+        clip-path: polygon(
+          evenodd,
+          0% 0%, 0% 100%, 100% 100%, 100% 0%, 0% 0%,
+          ${rect.left - padding}px ${rect.top - padding}px,
+          ${rect.left - padding}px ${rect.bottom + padding}px,
+          ${rect.right + padding}px ${rect.bottom + padding}px,
+          ${rect.right + padding}px ${rect.top - padding}px,
+          ${rect.left - padding}px ${rect.top - padding}px
+        );
+        opacity: 0; transition: opacity ${fadeIn}ms ease-out;
+      `;
+            document.body.appendChild(overlay);
+            requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+            setTimeout(() => {
+                overlay.style.transition = `opacity ${fadeOut}ms ease-out`;
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.remove(), fadeOut);
+            }, duration);
+        }, { preRect, duration, fadeIn, fadeOut, dimOpacity, attr: CAMERA_ATTR }, duration + fadeOut, wait);
+        return;
+    }
+    await runCameraEffect(page, ({ selector, duration, fadeIn, fadeOut, dimOpacity, attr }) => {
+        const target = document.querySelector(selector);
+        if (!target) {
+            console.warn('[argo] camera effect: no element found for selector "' + selector + '"');
+            return;
+        }
+        // Find siblings to dim — walk up to a reasonable container
+        const parent = target.parentElement;
+        if (!parent)
+            return;
+        const siblings = Array.from(parent.children).filter(child => child !== target);
+        const originals = siblings.map(s => ({
+            el: s,
+            opacity: s.style.opacity,
+            transition: s.style.transition,
+        }));
+        // Mark for cleanup
+        const marker = document.createElement('div');
+        marker.setAttribute(attr, 'dim-around');
+        marker.style.display = 'none';
+        marker.__dimRestore = () => {
+            originals.forEach(({ el, opacity, transition }) => {
+                el.style.opacity = opacity;
+                el.style.transition = transition;
+            });
+        };
+        document.body.appendChild(marker);
+        // Apply dim
+        siblings.forEach(s => {
+            s.style.transition = `opacity ${fadeIn}ms ease-out`;
+            s.style.opacity = String(dimOpacity);
+        });
+        setTimeout(() => {
+            siblings.forEach(s => {
+                s.style.transition = `opacity ${fadeOut}ms ease-out`;
+            });
+            originals.forEach(({ el, opacity }) => {
+                el.style.opacity = opacity || '';
+            });
+            // Fully restore original styles after fade-out completes
+            setTimeout(() => {
+                originals.forEach(({ el, opacity, transition }) => {
+                    el.style.opacity = opacity;
+                    el.style.transition = transition;
+                });
+                marker.remove();
+            }, fadeOut);
+        }, duration);
+    }, { selector, duration, fadeIn, fadeOut, dimOpacity, attr: CAMERA_ATTR }, duration + fadeOut, wait);
+}
+export async function zoomTo(page, selectorOrLocator, opts) {
+    const duration = opts?.duration ?? 3000;
+    const fadeIn = opts?.fadeIn ?? 400;
+    const fadeOut = opts?.fadeOut ?? 400;
+    const scale = opts?.scale ?? 1.5;
+    const wait = opts?.wait ?? false;
+    const holdMs = opts?.holdMs ?? 0;
+    const { selector, rect: preRect } = await resolveRect(page, selectorOrLocator);
+    // Post-export path: record camera move for ffmpeg processing
+    if (opts?.narration) {
+        // Resolve bounding box in video-pixel coordinates
+        let rect = preRect;
+        if (!rect && selector) {
+            try {
+                const box = await page.evaluate((sel) => {
+                    const el = document.querySelector(sel);
+                    if (!el)
+                        return null;
+                    const r = el.getBoundingClientRect();
+                    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+                }, selector);
+                rect = box;
+            }
+            catch {
+                // Page may be closed
+            }
+        }
+        if (rect) {
+            opts.narration.recordCameraMove({
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+                w: Math.round(rect.width),
+                h: Math.round(rect.height),
+                durationMs: fadeIn,
+                scale,
+                holdMs: holdMs > 0 ? holdMs : duration - fadeIn - fadeOut,
+            });
+        }
+        // Wait if requested so the demo script timing stays consistent
+        if (wait) {
+            await page.waitForTimeout(duration + fadeOut);
+        }
+        return;
+    }
+    // Legacy browser-side path (for VS Code preview / standalone Playwright runs)
+    await runCameraEffect(page, ({ selector, preRect, duration, fadeIn, fadeOut, scale, attr, overlayPrefix, confettiId, wrapperId, }) => {
+        const rect = preRect ?? (() => {
+            const target = document.querySelector(selector);
+            if (!target) {
+                console.warn('[argo] camera effect: no element found for selector "' + selector + '"');
+                return null;
+            }
+            return target.getBoundingClientRect();
+        })();
+        if (!rect)
+            return;
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const isArgoManaged = (el) => el.hasAttribute(attr) ||
+            el.id.startsWith(overlayPrefix) ||
+            el.id === confettiId;
+        const ensureZoomWrapper = () => {
+            let wrapper = document.getElementById(wrapperId);
+            if (wrapper)
+                return wrapper;
+            wrapper = document.createElement('div');
+            wrapper.id = wrapperId;
+            wrapper.style.transformOrigin = '0 0';
+            wrapper.style.willChange = 'transform';
+            const children = Array.from(document.body.children).filter((child) => {
+                if (child.id === wrapperId)
+                    return false;
+                return !isArgoManaged(child);
+            });
+            children.forEach((child) => wrapper.appendChild(child));
+            document.body.insertBefore(wrapper, document.body.firstChild);
+            return wrapper;
+        };
+        const unwrapZoomWrapper = () => {
+            const wrapper = document.getElementById(wrapperId);
+            if (!wrapper)
+                return;
+            const children = Array.from(wrapper.children);
+            children.forEach((child) => document.body.insertBefore(child, wrapper));
+            wrapper.remove();
+        };
+        const wrapper = ensureZoomWrapper();
+        const origTransform = wrapper.style.transform;
+        const origTransformOrigin = wrapper.style.transformOrigin;
+        const origTransition = wrapper.style.transition;
+        const origWillChange = wrapper.style.willChange;
+        const origOverflow = document.body.style.overflow;
+        // Marker element for cleanup tracking
+        const marker = document.createElement('div');
+        marker.setAttribute(attr, 'zoom-to');
+        marker.style.display = 'none';
+        marker.__zoomRestore = {
+            wrapperId,
+            styles: {
+                transform: origTransform,
+                transformOrigin: origTransformOrigin,
+                transition: origTransition,
+                willChange: origWillChange,
+            },
+            overflow: origOverflow,
+        };
+        document.body.appendChild(marker);
+        document.body.style.overflow = 'hidden';
+        // Compute translate to center the target in the viewport after scaling.
+        // With transform-origin at 0,0: after scale(s), the point (x,y) moves to (x*s, y*s).
+        // We want the target center to land at the viewport center, so:
+        //   centerX * scale + translateX = viewportWidth / 2
+        //   translateX = viewportWidth / 2 - centerX * scale
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const tx = vw / 2 - centerX * scale;
+        const ty = vh / 2 - centerY * scale;
+        wrapper.style.transformOrigin = '0 0';
+        wrapper.style.transition = `transform ${fadeIn}ms ease-out`;
+        requestAnimationFrame(() => {
+            wrapper.style.transform = `scale(${scale}) translate(${tx / scale}px, ${ty / scale}px)`;
+        });
+        setTimeout(() => {
+            wrapper.style.transition = `transform ${fadeOut}ms ease-out`;
+            wrapper.style.transform = origTransform || '';
+            setTimeout(() => {
+                const w = document.getElementById(wrapperId);
+                if (w) {
+                    w.style.transform = origTransform || '';
+                    w.style.transformOrigin = origTransformOrigin || '';
+                    w.style.transition = origTransition || '';
+                    w.style.willChange = origWillChange || '';
+                }
+                document.body.style.overflow = origOverflow || '';
+                unwrapZoomWrapper();
+                marker.remove();
+            }, fadeOut);
+        }, duration);
+    }, {
+        selector,
+        preRect,
+        duration,
+        fadeIn,
+        fadeOut,
+        scale,
+        attr: CAMERA_ATTR,
+        overlayPrefix: OVERLAY_ID_PREFIX,
+        confettiId: CONFETTI_ID,
+        wrapperId: ZOOM_WRAPPER_ID,
+    }, duration + fadeOut, wait);
+}
+export async function resetCamera(page) {
+    try {
+        await page.evaluate((attr) => {
+            const unwrapZoomWrapper = (wrapperId) => {
+                const wrapper = document.getElementById(wrapperId);
+                if (!wrapper)
+                    return;
+                const children = Array.from(wrapper.children);
+                children.forEach((child) => document.body.insertBefore(child, wrapper));
+                wrapper.remove();
+            };
+            // Clean up all camera elements
+            document.querySelectorAll(`[${attr}]`).forEach(el => {
+                // Restore dim-around originals
+                if (el.__dimRestore)
+                    el.__dimRestore();
+                // Restore zoom-to: reset wrapper transform and unwrap content
+                if (el.__zoomRestore) {
+                    const r = el.__zoomRestore;
+                    const wrapper = document.getElementById(r.wrapperId);
+                    if (wrapper) {
+                        wrapper.style.transform = r.styles.transform || '';
+                        wrapper.style.transformOrigin = r.styles.transformOrigin || '';
+                        wrapper.style.transition = r.styles.transition || '';
+                        wrapper.style.willChange = r.styles.willChange || '';
+                    }
+                    document.body.style.overflow = r.overflow || '';
+                    unwrapZoomWrapper(r.wrapperId);
+                }
+                el.remove();
+            });
+        }, CAMERA_ATTR);
+    }
+    catch {
+        // Page may be closed
+    }
+}
+/**
+ * Start tracking cursor positions for dwell-based camera suggestions.
+ *
+ * Injects a throttled mousemove listener into the page that records
+ * normalized (0..1) cursor positions. Call once at the start of the
+ * demo script — positions are flushed to a sidecar file by the fixture.
+ *
+ * Non-blocking, fire-and-forget safe.
+ */
+export async function trackCursor(page, narration) {
+    try {
+        // Expose a callback for the page to send cursor positions
+        await page.exposeFunction('__argoCursorSample', (cx, cy) => {
+            narration.recordCursorPosition(cx, cy);
+        });
+        // Inject throttled mousemove listener
+        await page.evaluate(() => {
+            let lastTime = 0;
+            const THROTTLE_MS = 100; // 10 samples/sec — enough for dwell detection
+            document.addEventListener('mousemove', (e) => {
+                const now = Date.now();
+                if (now - lastTime < THROTTLE_MS)
+                    return;
+                lastTime = now;
+                const cx = e.clientX / window.innerWidth;
+                const cy = e.clientY / window.innerHeight;
+                window.__argoCursorSample(cx, cy);
+            }, { passive: true });
+        });
+    }
+    catch {
+        // Page may be closed or exposeFunction already called
+    }
+}
+//# sourceMappingURL=camera.js.map
