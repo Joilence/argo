@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { KokoroEngine } from '../../src/tts/kokoro.js';
 import { parseWavHeader } from '../../src/tts/engine.js';
+import { isDepInstalled, KOKORO_DEP } from '../../src/optional-deps.js';
 
-const describeIntegration = process.env.CI ? describe.skip : describe;
+const describeIntegration = process.env.CI || !isDepInstalled(KOKORO_DEP) ? describe.skip : describe;
 
 describeIntegration('KokoroEngine (integration)', () => {
   const engine = new KokoroEngine();

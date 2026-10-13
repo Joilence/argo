@@ -61,10 +61,8 @@
   "devDependencies": {
     "@elevenlabs/elevenlabs-js": "^2.63.0",
     "@google/genai": "^1.52.0",
-    "@huggingface/transformers": "^3.5.1",
     "@playwright/test": "^1.59.1",
     "@types/node": "^25.5.0",
-    "kokoro-js": "^1.2.1",
     "openai": "^4.104.0",
     "playwright": "^1.59.1",
     "sarvamai": "^1.1.8",
